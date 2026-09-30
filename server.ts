@@ -199,17 +199,43 @@ app.post('/api/ai/generate-scene-visual', async (req: Request, res: Response) =>
   }
 });
 
-// Text-to-Speech Voiceover API (using gemini-3.8-flash-lite-tts)
+// Text-to-Speech Voiceover API (using gemini-3.8-flash-lite-tts with Bengali voice styling)
 app.post('/api/ai/tts', async (req: Request, res: Response) => {
   try {
-    const { text, voiceName = 'Kore', style = 'Cinematic narrator with clear emotional pacing' } = req.body;
+    const { text, voiceName = 'standard', style } = req.body;
     if (!text) {
       return res.status(400).json({ error: 'Text is required' });
     }
 
     const ai = getGenAIClient();
-    const validVoices = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'];
-    const chosenVoice = validVoices.includes(voiceName) ? voiceName : 'Kore';
+
+    // Map 4 Bengali voices: standard, deep, energetic, soft (with prebuilt voice and speech metadata)
+    const voiceProfiles: Record<string, { geminiVoice: string; defaultStyle: string }> = {
+      standard: {
+        geminiVoice: 'Kore',
+        defaultStyle: 'Clear, natural, articulate Bengali narration with standard native inflection and balanced storytelling cadence.',
+      },
+      deep: {
+        geminiVoice: 'Charon',
+        defaultStyle: 'Deep, resonant, baritone, authoritative, and cinematic dramatic Bengali narration.',
+      },
+      energetic: {
+        geminiVoice: 'Puck',
+        defaultStyle: 'Energetic, upbeat, dynamic, lively, bright, and emotionally expressive Bengali storytelling.',
+      },
+      soft: {
+        geminiVoice: 'Zephyr',
+        defaultStyle: 'Soft, gentle, calm, soothing, melodious, warm, and heartfelt Bengali reading.',
+      },
+    };
+
+    const profile = voiceProfiles[voiceName.toLowerCase()] || {
+      geminiVoice: ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'].includes(voiceName) ? voiceName : 'Kore',
+      defaultStyle: style || 'Cinematic narrator with clear emotional pacing in Bengali',
+    };
+
+    const chosenVoice = profile.geminiVoice;
+    const chosenStyle = style || profile.defaultStyle;
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.8-flash-lite-tts',
@@ -218,9 +244,9 @@ app.post('/api/ai/tts', async (req: Request, res: Response) => {
           role: 'user',
           parts: [
             {
-              text: text.slice(0, 500),
+              text: text.slice(0, 800),
               speechMetadata: {
-                style,
+                style: chosenStyle,
               },
             },
           ],
@@ -244,6 +270,7 @@ app.post('/api/ai/tts', async (req: Request, res: Response) => {
     res.json({
       audio: base64Audio,
       mimeType: 'audio/wav',
+      voice: voiceName,
     });
   } catch (error: any) {
     console.error('TTS error:', error);

@@ -79,8 +79,8 @@ export async function generateSceneVisual(
 
 export async function generateVoiceover(
   text: string,
-  voiceName: string = 'Kore',
-  style: string = 'Cinematic narrator with clear emotional pacing'
+  voiceName: string = 'standard',
+  style?: string
 ): Promise<string> {
   const res = await fetch('/api/ai/tts', {
     method: 'POST',

@@ -29,6 +29,8 @@ import {
 } from './services/api';
 import {
   AspectRatio,
+  BengaliVoiceOption,
+  BENGALI_VOICE_CONFIGS,
   CameraMotion,
   PresetConcept,
   Resolution,
@@ -60,6 +62,7 @@ export const App: React.FC = () => {
   const [model, setModel] = useState<VideoModel>('veo-3.1-lite-generate-preview');
   const [mode, setMode] = useState<'text-to-video' | 'image-to-video' | 'storyboard'>('text-to-video');
   const [referenceImage, setReferenceImage] = useState<string | undefined>(undefined);
+  const [bengaliVoice, setBengaliVoice] = useState<BengaliVoiceOption>('standard');
 
   // Active Project object
   const [currentProject, setCurrentProject] = useState<VideoProject>({
@@ -355,16 +358,18 @@ export const App: React.FC = () => {
     showToast('All scene frames synthesized successfully!');
   };
 
-  // Generate voiceover audio using Gemini TTS
-  const handleGenerateVoiceover = async (text: string) => {
+  // Generate voiceover audio using selected Bengali voice (standard, deep, energetic, soft)
+  const handleGenerateVoiceover = async (text: string, voice: BengaliVoiceOption = bengaliVoice) => {
     try {
-      showToast('🎙️ Generating natural voiceover with Gemini TTS...');
-      const audioUrl = await generateVoiceover(text, 'Kore');
+      const voiceConfig = BENGALI_VOICE_CONFIGS.find((v) => v.id === voice);
+      showToast(`🎙️ Generating voiceover with ${voiceConfig?.tone || voice}...`);
+      const audioUrl = await generateVoiceover(text, voice);
       setCurrentProject((prev) => ({
         ...prev,
         voiceoverAudio: audioUrl,
+        voiceoverVoice: voice,
       }));
-      showToast('Voiceover narration audio ready!');
+      showToast(`Voiceover narration (${voiceConfig?.tone || voice}) generated successfully!`);
     } catch (err: any) {
       console.error(err);
       showToast(`TTS notice: ${err.message}`);
@@ -470,6 +475,8 @@ export const App: React.FC = () => {
               setMode={setMode}
               referenceImage={referenceImage}
               setReferenceImage={setReferenceImage}
+              bengaliVoice={bengaliVoice}
+              setBengaliVoice={setBengaliVoice}
               onGenerate={handleGenerateVideo}
               onEnhancePrompt={handleEnhancePrompt}
               onGenerateStoryboard={handleGenerateStoryboard}
@@ -482,6 +489,8 @@ export const App: React.FC = () => {
             {mode === 'storyboard' && currentProject.storyboard && (
               <StoryboardDirector
                 storyboard={currentProject.storyboard}
+                bengaliVoice={bengaliVoice}
+                setBengaliVoice={setBengaliVoice}
                 onGenerateSceneVisual={(idx) => handleGenerateSceneVisual(idx)}
                 onGenerateAllVisuals={handleGenerateAllVisuals}
                 onGenerateVoiceover={handleGenerateVoiceover}

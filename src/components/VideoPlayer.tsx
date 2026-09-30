@@ -365,12 +365,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               {project.title || 'Untitled Cinematic Production'}
             </span>
           </h3>
-          <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-2">
+          <p className="text-xs text-slate-400 mt-0.5 flex flex-wrap items-center gap-1.5">
             <span>{aspectRatio}</span>
             <span>•</span>
             <span className="capitalize">{project.style}</span>
             <span>•</span>
             <span className="capitalize">{project.cameraMotion}</span>
+            {project.voiceoverVoice && (
+              <>
+                <span>•</span>
+                <span className="text-amber-400 font-medium flex items-center gap-1">
+                  <Volume2 className="w-3 h-3" />
+                  <span className="capitalize">{project.voiceoverVoice} Voice</span>
+                </span>
+              </>
+            )}
           </p>
         </div>
 

@@ -12,19 +12,23 @@ import {
   CheckCircle,
   Eye,
 } from 'lucide-react';
-import { StoryboardData, StoryboardScene } from '../types';
+import { BengaliVoiceOption, BENGALI_VOICE_CONFIGS, StoryboardData, StoryboardScene } from '../types';
 
 interface StoryboardDirectorProps {
   storyboard: StoryboardData;
+  bengaliVoice: BengaliVoiceOption;
+  setBengaliVoice: (voice: BengaliVoiceOption) => void;
   onGenerateSceneVisual: (sceneIndex: number) => void;
   onGenerateAllVisuals: () => void;
-  onGenerateVoiceover: (text: string) => void;
+  onGenerateVoiceover: (text: string, voice?: BengaliVoiceOption) => void;
   isGeneratingAllVisuals: boolean;
   onSelectSceneForPreview?: (sceneIndex: number) => void;
 }
 
 export const StoryboardDirector: React.FC<StoryboardDirectorProps> = ({
   storyboard,
+  bengaliVoice,
+  setBengaliVoice,
   onGenerateSceneVisual,
   onGenerateAllVisuals,
   onGenerateVoiceover,
@@ -48,8 +52,25 @@ export const StoryboardDirector: React.FC<StoryboardDirectorProps> = ({
           <p className="text-xs text-slate-400 mt-0.5 italic">"{storyboard.logline}"</p>
         </div>
 
-        {/* Global Batch Actions */}
-        <div className="flex items-center gap-2">
+        {/* Global Batch Actions & Voice Selector */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Bengali Voice Selection Dropdown */}
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800">
+            <Volume2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <select
+              value={bengaliVoice}
+              onChange={(e) => setBengaliVoice(e.target.value as BengaliVoiceOption)}
+              className="bg-transparent text-slate-200 text-xs focus:outline-none cursor-pointer pr-1"
+              title="Select Voiceover Tone"
+            >
+              {BENGALI_VOICE_CONFIGS.map((v) => (
+                <option key={v.id} value={v.id} className="bg-slate-900 text-slate-200">
+                  {v.tone} ({v.speaker})
+                </option>
+              ))}
+            </select>
+          </div>
+
           <button
             onClick={onGenerateAllVisuals}
             disabled={isGeneratingAllVisuals}
@@ -155,18 +176,24 @@ export const StoryboardDirector: React.FC<StoryboardDirectorProps> = ({
               {scene.voiceover && (
                 <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800/80 flex items-start justify-between gap-3">
                   <div className="space-y-0.5">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-400 flex items-center gap-1">
-                      <Volume2 className="w-3 h-3" /> Narration Voiceover
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-400 flex items-center gap-1">
+                        <Volume2 className="w-3 h-3" /> Narration Voiceover
+                      </span>
+                      <span className="px-1.5 py-0.2 rounded text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                        {BENGALI_VOICE_CONFIGS.find((v) => v.id === bengaliVoice)?.tone}
+                      </span>
+                    </div>
                     <p className="text-xs text-slate-300 italic">"{scene.voiceover}"</p>
                   </div>
 
                   <button
-                    onClick={() => onGenerateVoiceover(scene.voiceover)}
-                    className="shrink-0 p-1.5 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-md transition-colors"
-                    title="Synthesize Voiceover Audio with Gemini TTS"
+                    onClick={() => onGenerateVoiceover(scene.voiceover, bengaliVoice)}
+                    className="shrink-0 p-1.5 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-md transition-colors flex items-center gap-1 text-xs"
+                    title={`Synthesize Voiceover in ${BENGALI_VOICE_CONFIGS.find((v) => v.id === bengaliVoice)?.tone}`}
                   >
-                    <Volume2 className="w-3.5 h-3.5 text-indigo-400" />
+                    <Volume2 className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="hidden sm:inline text-[11px]">Generate Audio</span>
                   </button>
                 </div>
               )}

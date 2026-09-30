@@ -23,6 +23,62 @@ export type VisualStyle =
   | 'dark-fantasy'
   | 'documentary';
 
+export type BengaliVoiceOption = 'standard' | 'deep' | 'energetic' | 'soft';
+
+export interface BengaliVoiceConfig {
+  id: BengaliVoiceOption;
+  label: string;
+  tone: string;
+  speaker: string;
+  gender: 'Female' | 'Male';
+  geminiVoice: 'Kore' | 'Charon' | 'Puck' | 'Zephyr';
+  edgeVoice: string;
+  description: string;
+}
+
+export const BENGALI_VOICE_CONFIGS: BengaliVoiceConfig[] = [
+  {
+    id: 'standard',
+    label: 'Standard Bengali (Nabanita / Kore)',
+    tone: 'Standard Natural',
+    speaker: 'Nabanita (Female)',
+    gender: 'Female',
+    geminiVoice: 'Kore',
+    edgeVoice: 'bn-BD-NabanitaNeural',
+    description: 'Clear, balanced, and native news-anchor storytelling delivery.'
+  },
+  {
+    id: 'deep',
+    label: 'Deep Cinematic (Pradeep / Charon)',
+    tone: 'Deep Baritone',
+    speaker: 'Pradeep (Male)',
+    gender: 'Male',
+    geminiVoice: 'Charon',
+    edgeVoice: 'bn-BD-PradeepNeural',
+    description: 'Authoritative, resonant, deep-toned, and dramatic cinematic narration.'
+  },
+  {
+    id: 'energetic',
+    label: 'Energetic Storyteller (Bashkar / Puck)',
+    tone: 'Energetic & Fast',
+    speaker: 'Bashkar (Male)',
+    gender: 'Male',
+    geminiVoice: 'Puck',
+    edgeVoice: 'bn-IN-BashkarNeural',
+    description: 'Dynamic, animated, bright, and emotionally expressive pacing.'
+  },
+  {
+    id: 'soft',
+    label: 'Soft Melodious (Tanishaa / Zephyr)',
+    tone: 'Soft & Gentle',
+    speaker: 'Tanishaa (Female)',
+    gender: 'Female',
+    geminiVoice: 'Zephyr',
+    edgeVoice: 'bn-IN-TanishaaNeural',
+    description: 'Gentle, soothing, warm, and melodious storytelling voice.'
+  }
+];
+
 export interface StoryboardScene {
   sceneNumber: number;
   durationSec: number;

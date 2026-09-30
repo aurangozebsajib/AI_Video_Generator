@@ -3,17 +3,18 @@ name: Automated AI Video Generation Pipeline
 on:
   workflow_dispatch:
     inputs:
-      story_doc_id:
-        description: 'Optional Google Doc ID override'
+      doc_id_override:
+        description: 'Optional Google Doc ID override to process a specific document'
+        type: string
         required: false
         default: ''
       dry_run:
-        description: 'Run pipeline in dry-run mode'
+        description: 'Run pipeline in dry-run mode (simulate without external API calls)'
         type: boolean
         required: false
         default: false
   schedule:
-    # Trigger automatically every day at 06:00 UTC (Optional, can be modified)
+    # Trigger automatically every day at 06:00 UTC (Optional)
     - cron: '0 6 * * *'
 
 concurrency:
@@ -49,14 +50,20 @@ jobs:
       - name: Run Automated Video Generation Pipeline
         env:
           GOOGLE_SERVICE_JSON: ${{ secrets.GOOGLE_SERVICE_JSON }}
-          STORY_STORAGE_DOC: ${{ github.event.inputs.story_doc_id || secrets.STORY_STORAGE_DOC }}
+          DOC_ID_OVERRIDE: ${{ inputs.doc_id_override }}
+          STORY_STORAGE_DOC: ${{ inputs.doc_id_override != '' && inputs.doc_id_override || secrets.STORY_STORAGE_DOC }}
+          DRY_RUN: ${{ inputs.dry_run || false }}
           MODEL_STORAGE_SHEET: ${{ secrets.MODEL_STORAGE_SHEET }}
           GOOGLE_AI_STUDIO_KEY: ${{ secrets.GOOGLE_AI_STUDIO_KEY || secrets.GEMINI_API_KEY }}
           HF_TOKENS: ${{ secrets.HF_TOKENS }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
         run: |
-          echo "Starting AI Video Generation Pipeline..."
+          echo "=========================================================="
+          echo " Starting AI Video Generation Pipeline..."
+          echo " Dry Run Mode: ${{ inputs.dry_run || false }}"
+          echo " Doc Override: ${{ inputs.doc_id_override || '(Using default secret)' }}"
+          echo "=========================================================="
           python main.py
 
       - name: Upload Generated Video Artifacts
@@ -67,5 +74,6 @@ jobs:
           path: |
             pipeline_workspace/final_outputs/*.mp4
             pipeline_workspace/assets/*.jpg
+            generated_audio.mp3
           retention-days: 14
           if-no-files-found: warn

@@ -14,7 +14,7 @@ import {
   ChevronUp,
   Volume2,
 } from 'lucide-react';
-import { AspectRatio, CameraMotion, Resolution, VideoModel, VisualStyle } from '../types';
+import { AspectRatio, BengaliVoiceOption, BENGALI_VOICE_CONFIGS, CameraMotion, Resolution, VideoModel, VisualStyle } from '../types';
 
 interface PromptEditorProps {
   prompt: string;
@@ -35,6 +35,8 @@ interface PromptEditorProps {
   setMode: (mode: 'text-to-video' | 'image-to-video' | 'storyboard') => void;
   referenceImage?: string;
   setReferenceImage: (img?: string) => void;
+  bengaliVoice: BengaliVoiceOption;
+  setBengaliVoice: (voice: BengaliVoiceOption) => void;
   onGenerate: () => void;
   onEnhancePrompt: () => void;
   onGenerateStoryboard: () => void;
@@ -85,6 +87,8 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
   setMode,
   referenceImage,
   setReferenceImage,
+  bengaliVoice,
+  setBengaliVoice,
   onGenerate,
   onEnhancePrompt,
   onGenerateStoryboard,
@@ -335,6 +339,38 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
               <option value="1080p">1080p FHD</option>
             </select>
           </div>
+        </div>
+      </div>
+
+      {/* Bengali Voiceover Artist Selection */}
+      <div className="space-y-2 p-3.5 rounded-xl bg-slate-950/70 border border-slate-800/90">
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+            <Volume2 className="w-3.5 h-3.5 text-amber-400" /> Bengali Voiceover Tone
+          </label>
+          <span className="text-[11px] text-amber-400/90 font-medium">
+            {BENGALI_VOICE_CONFIGS.find((v) => v.id === bengaliVoice)?.speaker}
+          </span>
+        </div>
+        <div className="relative">
+          <select
+            value={bengaliVoice}
+            onChange={(e) => setBengaliVoice(e.target.value as BengaliVoiceOption)}
+            className="w-full bg-slate-900 border border-slate-800 text-slate-100 rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:border-amber-500 font-medium appearance-none cursor-pointer pr-10"
+          >
+            {BENGALI_VOICE_CONFIGS.map((voice) => (
+              <option key={voice.id} value={voice.id}>
+                {voice.tone} ({voice.speaker}) — {voice.description}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+        </div>
+        <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
+          <span>* Voice Profile: {BENGALI_VOICE_CONFIGS.find((v) => v.id === bengaliVoice)?.description}</span>
+          <span className="font-mono text-[10px] text-slate-600 hidden sm:inline">
+            {BENGALI_VOICE_CONFIGS.find((v) => v.id === bengaliVoice)?.edgeVoice}
+          </span>
         </div>
       </div>
 
