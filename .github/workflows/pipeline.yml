@@ -63,6 +63,6 @@ jobs:
           path: |
             pipeline_workspace/final_outputs/*.mp4
             pipeline_workspace/assets/*.jpg
-            generated_audio.mp3
+            *.mp3
           retention-days: 14
           if-no-files-found: warn

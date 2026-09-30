@@ -383,8 +383,123 @@ def call_gemini_api(prompt_text: str, timeout_sec: float = TIMEOUT_GEMINI_API) -
 
 
 # ==============================================================================
-# Step 3: Edge-TTS Audio Generation (Async with Strict Timeout & Fallback)
+# Step 3: Edge-TTS Multi-Voice Audio Generation (Simultaneous 4 Bengali Voices)
 # ==============================================================================
+
+# Regional Bengali voice configurations for simultaneous generation
+BENGALI_VOICE_CONFIGS = [
+    {
+        "id": "v1_nabanita",
+        "voice": "bn-BD-NabanitaNeural",
+        "name": "Nabanita",
+        "label": "Bangladesh Female (Nabanita)",
+        "region": "Bangladesh",
+        "gender": "Female",
+        "filename": "generated_audio_nabanita_female_bd.mp3",
+    },
+    {
+        "id": "v2_pradeep",
+        "voice": "bn-BD-PradeepNeural",
+        "name": "Pradeep",
+        "label": "Bangladesh Male (Pradeep)",
+        "region": "Bangladesh",
+        "gender": "Male",
+        "filename": "generated_audio_pradeep_male_bd.mp3",
+    },
+    {
+        "id": "v3_tanishaa",
+        "voice": "bn-IN-TanishaaNeural",
+        "name": "Tanishaa",
+        "label": "India Bengali Female (Tanishaa)",
+        "region": "India",
+        "gender": "Female",
+        "filename": "generated_audio_tanishaa_female_in.mp3",
+    },
+    {
+        "id": "v4_bashkar",
+        "voice": "bn-IN-BashkarNeural",
+        "name": "Bashkar",
+        "label": "India Bengali Male (Bashkar)",
+        "region": "India",
+        "gender": "Male",
+        "filename": "generated_audio_bashkar_male_in.mp3",
+    },
+]
+
+
+async def generate_single_audio_edition(
+    text: str,
+    voice_config: dict,
+    rate: str = "+5%",
+    pitch: str = "-1Hz",
+    dry_run: bool = False
+) -> dict:
+    """Generates a single Bengali audio file using edge-tts with timeouts and fallbacks."""
+    voice = voice_config["voice"]
+    label = voice_config["label"]
+    filename = voice_config["filename"]
+
+    if dry_run:
+        logger.info(f"[DRY RUN] Simulating Edge-TTS generation for {label} ({voice})...")
+        logger.info(f"[DRY RUN] Parameters: rate='{rate}', pitch='{pitch}' -> {filename}")
+        write_dummy_audio_file(filename)
+        return {**voice_config, "filepath": filename, "success": True}
+
+    Path(filename).parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        import edge_tts
+        communicator = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
+        logger.info(f"Synthesizing {label} with voice: {voice} (rate={rate}, pitch={pitch})...")
+        await asyncio.wait_for(communicator.save(filename), timeout=TIMEOUT_EDGE_TTS)
+
+        if os.path.exists(filename) and os.path.getsize(filename) > 0:
+            logger.info(f"✅ Audio generated: {filename} ({os.path.getsize(filename)} bytes) for {label}")
+            return {**voice_config, "filepath": filename, "success": True}
+        else:
+            logger.warning(f"Edge-TTS produced empty file for {label}. Using safe placeholder.")
+            write_dummy_audio_file(filename)
+            return {**voice_config, "filepath": filename, "success": False}
+    except asyncio.TimeoutError:
+        logger.error(f"[Edge-TTS Timeout] Speech generation timed out for {label} ({voice}). Using fallback.")
+        write_dummy_audio_file(filename)
+        return {**voice_config, "filepath": filename, "success": False}
+    except Exception as e:
+        logger.error(f"[Edge-TTS Error] {label} ({voice}): {e}. Using fallback placeholder.")
+        write_dummy_audio_file(filename)
+        return {**voice_config, "filepath": filename, "success": False}
+
+
+async def generate_all_bengali_audio_versions(
+    text: str,
+    rate: str = "+5%",
+    pitch: str = "-1Hz",
+    dry_run: bool = False
+) -> list:
+    """
+    Simultaneously generates 4 distinct regional Bengali voice audio files using edge-tts:
+    1. bn-BD-NabanitaNeural (Bangladesh Female)
+    2. bn-BD-PradeepNeural (Bangladesh Male)
+    3. bn-IN-TanishaaNeural (India Bengali Female)
+    4. bn-IN-BashkarNeural (India Bengali Male)
+    """
+    logger.info("Executing simultaneous audio generation across all 4 regional Bengali voices...")
+    tasks = [
+        generate_single_audio_edition(text, v_conf, rate=rate, pitch=pitch, dry_run=dry_run)
+        for v_conf in BENGALI_VOICE_CONFIGS
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=False)
+
+    # Maintain generated_audio.mp3 as a default alias for backwards compatibility
+    if results and os.path.exists(results[0]["filepath"]):
+        try:
+            import shutil
+            shutil.copyfile(results[0]["filepath"], "generated_audio.mp3")
+        except Exception:
+            pass
+
+    return results
+
 
 async def generate_audio_with_edge_tts(
     text: str,
@@ -392,59 +507,13 @@ async def generate_audio_with_edge_tts(
     output_filename: str = "generated_audio.mp3",
     dry_run: bool = False
 ) -> str:
-    """ডায়ালেক্ট বা ভাষা অনুযায়ী edge-tts দিয়ে অডিও জেনারেট করার ফাংশন (টাইম-আউট এবং ফলব্যাক সহ)"""
-    voice_mapping = {
-        "rangpuri": "bn-BD-NabanitaNeural",
-        "barishal": "bn-BD-NabanitaNeural",
-        "old-dhaka": "bn-BD-PradeepNeural",
-        "chittagong": "bn-BD-PradeepNeural",
-        "sylheti": "bn-IN-BashkarNeural",
-        "kolkata": "bn-IN-TanishaaNeural",
-        "none": "bn-BD-NabanitaNeural",
-        "auto": "bn-BD-NabanitaNeural"
-    }
-
-    voice = voice_mapping.get(dialect.lower(), "bn-BD-NabanitaNeural")
-
-    if dry_run:
-        logger.info(f"[DRY RUN] Simulating Edge-TTS generation for dialect '{dialect}' with voice '{voice}'")
-        logger.info(f"[DRY RUN] Speech pacing: rate='+5%', pitch='-1Hz'")
-        write_dummy_audio_file(output_filename)
-        logger.info(f"[DRY RUN] Simulated audio output ready: {output_filename}")
-        return output_filename
-
-    # Ensure output directory exists
-    Path(output_filename).parent.mkdir(parents=True, exist_ok=True)
-
-    try:
-        import edge_tts
-
-        communicator = edge_tts.Communicate(text, voice, rate="+5%", pitch="-1Hz")
-
-        # Wrap in asyncio.wait_for to prevent indefinite hangs if websocket stalls
-        logger.info(f"Synthesizing speech with voice: {voice} (timeout: {TIMEOUT_EDGE_TTS}s)...")
-        await asyncio.wait_for(communicator.save(output_filename), timeout=TIMEOUT_EDGE_TTS)
-
-        if os.path.exists(output_filename) and os.path.getsize(output_filename) > 0:
-            logger.info(f"Audio successfully generated: {output_filename} ({os.path.getsize(output_filename)} bytes)")
-            return output_filename
-        else:
-            logger.warning("Edge-TTS produced an empty file. Generating safe audio placeholder.")
-            write_dummy_audio_file(output_filename)
-            return output_filename
-
-    except asyncio.TimeoutError:
-        logger.error(f"[Edge-TTS Timeout] Speech generation timed out after {TIMEOUT_EDGE_TTS}s. Using fallback audio.")
-        write_dummy_audio_file(output_filename)
-        return output_filename
-    except Exception as e:
-        logger.error(f"[Edge-TTS Error] {e}. Using fallback audio placeholder.")
-        write_dummy_audio_file(output_filename)
-        return output_filename
+    """Single audio generation wrapper for backwards compatibility."""
+    results = await generate_all_bengali_audio_versions(text, rate="+5%", pitch="-1Hz", dry_run=dry_run)
+    return results[0]["filepath"] if results else output_filename
 
 
 # ==============================================================================
-# Step 4: Telegram Audio Delivery (with Timeout & Robust Retry Handling)
+# Step 4: Telegram Audio Delivery (Sequential Delivery of All 4 Audio Versions)
 # ==============================================================================
 
 def send_audio_to_telegram(
@@ -454,22 +523,23 @@ def send_audio_to_telegram(
     performer: str = None,
     dry_run: bool = False
 ):
-    """জেনারেট করা অডিও ফাইলটি সরাসরি টেলিগ্রাম চ্যানেলে পাঠানোর ফাংশন"""
+    """Sends an audio file directly to Telegram channel with timeout & error handling."""
     if dry_run:
         logger.info(f"[DRY RUN] Simulating Telegram sendAudio call to: '{TELEGRAM_CHANNEL_ID or '@mock_channel'}'")
+        logger.info(f"[DRY RUN] Audio: {audio_path}")
         logger.info(f"[DRY RUN] Caption: {caption.replace(chr(10), ' ')}")
-        logger.info(f"[DRY RUN] Audio file: {audio_path}")
         logger.info("[DRY RUN] Telegram delivery simulated successfully!")
         return
 
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHANNEL_ID:
-        logger.warning(f"TELEGRAM_BOT_TOKEN or TELEGRAM_CHANNEL_ID not set. Audio saved locally at: {audio_path}")
+        logger.warning(f"TELEGRAM_BOT_TOKEN or TELEGRAM_CHANNEL_ID not set. Audio saved locally: {audio_path}")
         return
 
     if not os.path.exists(audio_path):
         logger.error(f"Cannot send audio to Telegram: file not found at '{audio_path}'")
         return
 
+    # Primary method using requests
     try:
         import requests
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendAudio"
@@ -478,25 +548,119 @@ def send_audio_to_telegram(
             files = {'audio': audio_file}
             data = {
                 'chat_id': TELEGRAM_CHANNEL_ID,
-                'caption': caption[:1024]  # Telegram caption max length
+                'caption': caption[:1024],
+                'parse_mode': 'HTML'
             }
             if title:
                 data['title'] = title[:64]
             if performer:
                 data['performer'] = performer[:64]
 
-            # Connect timeout: 8s, Read/Upload timeout: TIMEOUT_TELEGRAM
-            logger.info("Uploading audio to Telegram channel...")
+            logger.info(f"Uploading {os.path.basename(audio_path)} to Telegram channel...")
             response = requests.post(url, files=files, data=data, timeout=(8.0, TIMEOUT_TELEGRAM))
 
         if response.status_code == 200:
-            logger.info("✅ Audio successfully delivered to Telegram channel!")
+            logger.info(f"✅ Audio successfully delivered to Telegram ({os.path.basename(audio_path)})!")
         else:
             logger.warning(f"Telegram API response ({response.status_code}): {response.text[:200]}")
-    except requests.exceptions.Timeout:
-        logger.error(f"Telegram request timed out after {TIMEOUT_TELEGRAM}s. Skipping without crash.")
+        return
+    except ImportError:
+        pass
     except Exception as e:
-        logger.error(f"Exception during Telegram transmission: {e}")
+        logger.error(f"Requests error during Telegram upload: {e}. Trying fallback standard library transport...")
+
+    # Robust fallback using standard library urllib
+    try:
+        import urllib.request
+        import uuid
+
+        boundary = f"----WebKitFormBoundary{uuid.uuid4().hex}"
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendAudio"
+
+        data_fields = {
+            'chat_id': TELEGRAM_CHANNEL_ID,
+            'caption': caption[:1024],
+            'parse_mode': 'HTML'
+        }
+        if title:
+            data_fields['title'] = title[:64]
+        if performer:
+            data_fields['performer'] = performer[:64]
+
+        body = bytearray()
+        for k, v in data_fields.items():
+            body.extend(f"--{boundary}\r\n".encode("utf-8"))
+            body.extend(f'Content-Disposition: form-data; name="{k}"\r\n\r\n'.encode("utf-8"))
+            body.extend(f"{v}\r\n".encode("utf-8"))
+
+        with open(audio_path, 'rb') as f:
+            file_bytes = f.read()
+
+        filename = os.path.basename(audio_path)
+        body.extend(f"--{boundary}\r\n".encode("utf-8"))
+        body.extend(f'Content-Disposition: form-data; name="audio"; filename="{filename}"\r\n'.encode("utf-8"))
+        body.extend(b"Content-Type: audio/mpeg\r\n\r\n")
+        body.extend(file_bytes)
+        body.extend(b"\r\n")
+        body.extend(f"--{boundary}--\r\n".encode("utf-8"))
+
+        req = urllib.request.Request(
+            url,
+            data=bytes(body),
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}
+        )
+        with urllib.request.urlopen(req, timeout=TIMEOUT_TELEGRAM) as resp:
+            if resp.status == 200:
+                logger.info(f"✅ Audio delivered to Telegram ({filename}) via fallback transport!")
+            else:
+                logger.warning(f"Telegram fallback response: {resp.status}")
+    except Exception as e:
+        logger.error(f"Fallback Telegram transmission failed: {e}")
+
+
+def send_all_audios_to_telegram(
+    audio_results: list,
+    video_header: str,
+    dialect: str = "none",
+    dry_run: bool = False
+):
+    """
+    Sends all 4 generated audio files sequentially to the Telegram channel
+    with distinct, descriptive captions for each Bengali voice version.
+    """
+    logger.info(f"\nStep 4: Sending all {len(audio_results)} audio editions sequentially to Telegram...")
+
+    for idx, item in enumerate(audio_results, 1):
+        label = item["label"]
+        region = item["region"]
+        gender = item["gender"]
+        voice = item["voice"]
+        filepath = item["filepath"]
+
+        # Distinct caption for each version
+        caption = (
+            f"🎙️ <b>{video_header}</b> (Voice Edition {idx}/4)\n"
+            f"🗣️ <b>Voice:</b> {label}\n"
+            f"📍 <b>Region:</b> {region} | 👤 <b>Gender:</b> {gender}\n"
+            f"🔊 <b>Engine:</b> Edge-TTS (<code>{voice}</code>)\n"
+            f"⚡ <b>Pacing:</b> Rate: +5% | Pitch: -1Hz\n"
+            f"💬 <b>Doc Dialect:</b> {dialect.capitalize()}"
+        )
+        title = f"{video_header} - {label}"
+        performer = f"AI Voice: {item['name']} ({region})"
+
+        logger.info(f"-> Dispatching edition {idx}/4 to Telegram: {label} ({filepath})...")
+        send_audio_to_telegram(
+            filepath,
+            caption=caption,
+            title=title,
+            performer=performer,
+            dry_run=dry_run
+        )
+
+        # Brief pause between sequential Telegram uploads to respect API rate limits
+        if not dry_run and idx < len(audio_results):
+            time.sleep(1.5)
 
 
 # ==============================================================================
@@ -737,29 +901,27 @@ async def main():
             logger.info("-> Script refined via Gemini 2.5 Flash API.")
             script_text = polished
 
-    # Step 3: Generating Audio using edge-tts
-    logger.info("\nStep 3: Generating Audio using edge-tts...")
-    audio_file = await generate_audio_with_edge_tts(
+    # Step 3: Generating 4 Audio Editions simultaneously using edge-tts
+    logger.info("\nStep 3: Generating 4 Audio Editions simultaneously using edge-tts...")
+    audio_results = await generate_all_bengali_audio_versions(
         script_text,
-        dialect=dialect,
-        output_filename="generated_audio.mp3",
+        rate="+5%",
+        pitch="-1Hz",
         dry_run=is_dry_run
     )
 
-    # Step 4: Sending Audio to Telegram
-    logger.info("\nStep 4: Sending Audio to Telegram...")
-    caption = f"🎙️ {video_header}\n🗣️ Dialect: {dialect.capitalize()}\n⚡ Generated by Edge-TTS"
-    send_audio_to_telegram(
-        audio_file,
-        caption=caption,
-        title=video_header,
-        performer="AI Video Generator",
+    # Step 4: Sending all 4 Audio Editions sequentially to Telegram
+    send_all_audios_to_telegram(
+        audio_results,
+        video_header=video_header,
+        dialect=dialect,
         dry_run=is_dry_run
     )
 
     # Step 5: Full video pipeline if requested
     if args.full_video or os.environ.get("RUN_FULL_VIDEO_PIPELINE") == "true":
-        await run_full_video_pipeline(video_header, script_text, audio_file, dialect, dry_run=is_dry_run)
+        primary_audio = audio_results[0]["filepath"] if audio_results else "generated_audio.mp3"
+        await run_full_video_pipeline(video_header, script_text, primary_audio, dialect, dry_run=is_dry_run)
 
     logger.info("\n✅ Execution Finished Successfully.")
 
