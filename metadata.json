@@ -1,0 +1,7 @@
+{
+  "name": "AI Video Generator",
+  "description": "Create cinematic AI videos from text prompts and images with multi-scene storyboarding, camera motion controls, voiceover narration, and high-definition video synthesis.",
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

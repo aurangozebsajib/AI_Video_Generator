@@ -1,0 +1,71 @@
+name: Automated AI Video Generation Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      story_doc_id:
+        description: 'Optional Google Doc ID override'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Run pipeline in dry-run mode'
+        type: boolean
+        required: false
+        default: false
+  schedule:
+    # Trigger automatically every day at 06:00 UTC (Optional, can be modified)
+    - cron: '0 6 * * *'
+
+concurrency:
+  group: video-generation-pipeline
+  cancel-in-progress: false
+
+jobs:
+  generate-videos:
+    name: Execute AI Video Generation Pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install System Multimedia Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libsndfile1 libasound2
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Automated Video Generation Pipeline
+        env:
+          GOOGLE_SERVICE_JSON: ${{ secrets.GOOGLE_SERVICE_JSON }}
+          STORY_STORAGE_DOC: ${{ github.event.inputs.story_doc_id || secrets.STORY_STORAGE_DOC }}
+          MODEL_STORAGE_SHEET: ${{ secrets.MODEL_STORAGE_SHEET }}
+          GOOGLE_AI_STUDIO_KEY: ${{ secrets.GOOGLE_AI_STUDIO_KEY || secrets.GEMINI_API_KEY }}
+          HF_TOKENS: ${{ secrets.HF_TOKENS }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+        run: |
+          echo "Starting AI Video Generation Pipeline..."
+          python main.py
+
+      - name: Upload Generated Video Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-bengali-video-editions
+          path: |
+            pipeline_workspace/final_outputs/*.mp4
+            pipeline_workspace/assets/*.jpg
+          retention-days: 14
+          if-no-files-found: warn
