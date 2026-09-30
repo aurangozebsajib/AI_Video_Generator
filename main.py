@@ -4,19 +4,21 @@ Automated AI Video Generation Pipeline
 Repository: aurangozebsajib/AI_Video_Generator
 
 Features:
-1. Google Doc & Sheet Integration: Reads script via GOOGLE_SERVICE_JSON from STORY_STORAGE_DOC
-   and tracks execution/logs in MODEL_STORAGE_SHEET.
+1. Google Doc & Sheet Integration: Reads latest script via GOOGLE_SERVICE_JSON from STORY_STORAGE_DOC
+   (parsing 'Video N | YYYY-MM-DD', 'Dialect: xxx', and script text) and tracks logs in MODEL_STORAGE_SHEET.
 2. Brain Processing & Multi-API Rotation: Uses Gemini API with multi-key rotation and Hugging Face
    LLM fallback to analyze scripts into scene breakdowns.
-3. Audio Generation: Generates natural/regional Bengali audio using edge-tts (4 regional voices).
+3. Audio Generation: Generates natural/regional Bengali audio using edge-tts (dialects & 4 regional voices)
+   with customized speech pacing (+5% rate, -1Hz pitch).
 4. Hugging Face Video Generation: Generates video clips with 6-7 token rotation and multi-tier fallback.
 5. Multi-Voice Output & Auto-Sync: Librosa + FFmpeg cross-correlation audio-video alignment producing
    4 distinct synced MP4 video editions.
-6. Telegram Integration: Uploads character reference images and distributes final video editions
-   to TELEGRAM_CHANNEL_ID via TELEGRAM_BOT_TOKEN.
+6. Telegram Integration: Sends reference photos, standalone audio clips (sendAudio), and final video editions
+   (sendVideo) to TELEGRAM_CHANNEL_ID via TELEGRAM_BOT_TOKEN.
 """
 
 import os
+import re
 import sys
 import json
 import time
@@ -99,7 +101,19 @@ class PipelineConfig:
         self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
         self.telegram_channel_id = os.getenv("TELEGRAM_CHANNEL_ID", "")
 
-        # Target Bengali TTS Voices
+        # Dialect to Voice Mapping (for regional edge-tts selection)
+        self.dialect_voice_mapping = {
+            "rangpuri": "bn-BD-NabanitaNeural",
+            "barishal": "bn-BD-NabanitaNeural",
+            "old-dhaka": "bn-BD-PradeepNeural",
+            "chittagong": "bn-BD-PradeepNeural",
+            "sylheti": "bn-IN-BashkarNeural",
+            "kolkata": "bn-IN-TanishaaNeural",
+            "none": "bn-BD-NabanitaNeural",
+            "auto": "bn-BD-NabanitaNeural",
+        }
+
+        # Target 4 Bengali TTS Voices for Multi-Voice Generation
         self.bengali_voices = {
             "v1_nabanita": {
                 "name": "bn-BD-NabanitaNeural",
@@ -167,9 +181,9 @@ class GoogleWorkspaceClient:
             ]
 
             if os.path.exists(self.service_json_str):
-                self.creds = service_account.Credentials.from_service_account_file(
-                    self.service_json_str, scopes=scopes
-                )
+                with open(self.service_json_str, "r", encoding="utf-8") as f:
+                    creds_dict = json.load(f)
+                self.creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=scopes)
             else:
                 service_info = json.loads(self.service_json_str)
                 self.creds = service_account.Credentials.from_service_account_info(
@@ -183,42 +197,68 @@ class GoogleWorkspaceClient:
         except Exception as e:
             logger.error(f"[GoogleWorkspace] Authentication failed: {e}. Will fallback to mock content.")
 
-    def read_story_doc(self, doc_id_or_url: str) -> Tuple[str, str]:
-        """Extracts title and raw text content from the Google Doc."""
-        if not self.docs_service or not doc_id_or_url:
-            logger.info("[GoogleWorkspace] Using fallback sample story content.")
-            sample_title = "নক্ষত্রের কান্না (Cry of the Stars)"
-            sample_content = (
-                "গভীর মহাকাশে একাকী ঘুরে বেড়াচ্ছিল একটি প্রাচীন নভোযান। "
-                "মহাকাশচারী আরিয়ান জানালার বাইরে তাকিয়ে দেখল এক অদ্ভুত উজ্জ্বল নীলাভ নীহারিকা। "
-                "হঠাৎ জাহাজের এআই কম্পিউটার সংকেত দিল—সামনে এক অচেনা স্ফটিক গ্রহের সন্ধান মিলেছে। "
-                "আরিয়ান বুঝতে পারল, এই যাত্রা মানবজাতির ভবিষ্যতের নতুন দিগন্ত উন্মোচন করবে।"
+    def get_latest_script_from_doc(self, doc_id: str) -> str:
+        """গুগল ডক থেকে সর্বশেষ স্ক্রিপ্ট, ভিডিও নম্বর এবং ডায়ালেক্ট রিড করার ফাংশন"""
+        if not self.docs_service or not doc_id:
+            logger.info("[GoogleDoc] Using default sample script with Video N and Dialect structure.")
+            return (
+                "Video 1 | 2026-09-30\n"
+                "Dialect: old-dhaka\n"
+                "আসসালামু আলাইকুম, আজকে আমরা আমাদের অটোমেটেড ভিডিও পাইপলাইন থেকে প্রথম অডিও জেনারেট করছি।"
             )
-            return sample_title, sample_content
 
-        # Extract document ID if URL is provided
-        doc_id = doc_id_or_url
-        if "/d/" in doc_id:
-            doc_id = doc_id.split("/d/")[1].split("/")[0]
+        clean_id = doc_id
+        if "/d/" in clean_id:
+            clean_id = clean_id.split("/d/")[1].split("/")[0]
 
         try:
-            doc = self.docs_service.documents().get(documentId=doc_id).execute()
-            title = doc.get("title", "Untitled Story")
-            text_parts = []
+            document = self.docs_service.documents().get(documentId=clean_id).execute()
+            content = ""
+            for elem in document.get("body", {}).get("content", []):
+                if "paragraph" in elem:
+                    for pellet in elem["paragraph"].get("elements", []):
+                        if "textRun" in pellet:
+                            content += pellet["textRun"].get("content", "")
 
-            for content_element in doc.get("body", {}).get("content", []):
-                if "paragraph" in content_element:
-                    for element in content_element["paragraph"].get("elements", []):
-                        text = element.get("textRun", {}).get("content", "")
-                        if text:
-                            text_parts.append(text)
-
-            full_text = "".join(text_parts).strip()
-            logger.info(f"[GoogleDoc] Successfully read document '{title}' ({len(full_text)} chars).")
-            return title, full_text
+            logger.info(f"[GoogleDoc] Successfully read raw doc content ({len(content)} characters).")
+            return content
         except Exception as e:
-            logger.error(f"[GoogleDoc] Error reading document: {e}. Falling back to default script.")
-            return "Sample Story", "এক সময় এক শান্ত সবুজ গ্রামে আরিয়ান নামে এক নির্ভীক অভিযাত্রী বাস করত।"
+            logger.error(f"[GoogleDoc] Error reading doc: {e}. Falling back to default content.")
+            return "Video 1 | 2026-09-30\nDialect: none\nএক শান্ত সবুজ গ্রামে আরিয়ান নামে এক নির্ভীক অভিযাত্রী বাস করত।"
+
+    def parse_latest_entry(self, content: str) -> Tuple[str, str, str]:
+        """
+        ডকের টেক্সট থেকে শেষ ভিডিও এন্ট্রি বা সব এন্ট্রি পার্স করা
+        ফরম্যাট:
+        Video N | YYYY-MM-DD
+        Dialect: xxx
+        Script text...
+        """
+        pattern = r"(Video\s+\d+\s*\|\s*\d{4}-\d{2}-\d{2}[^\n]*)"
+        splits = re.split(pattern, content, flags=re.IGNORECASE)
+
+        if len(splits) > 1:
+            header = splits[-2].strip()
+            body = splits[-1].strip()
+
+            dialect = "none"
+            dialect_match = re.search(r"Dialect\s*:\s*([^\n\r]+)", body, re.IGNORECASE)
+            script_text = body
+            if dialect_match:
+                dialect = dialect_match.group(1).strip().lower()
+                script_text = re.sub(r"Dialect\s*:\s*[^\n\r]+", "", body, flags=re.IGNORECASE).strip()
+
+            return header, dialect, script_text
+
+        # Fallback if no Video N header is present
+        dialect = "none"
+        dialect_match = re.search(r"Dialect\s*:\s*([^\n\r]+)", content, re.IGNORECASE)
+        script_text = content.strip()
+        if dialect_match:
+            dialect = dialect_match.group(1).strip().lower()
+            script_text = re.sub(r"Dialect\s*:\s*[^\n\r]+", "", content, flags=re.IGNORECASE).strip()
+
+        return "Latest Video Script", dialect, script_text
 
     def log_to_sheet(self, sheet_id_or_name: str, row_data: Dict[str, Any]):
         """Logs pipeline execution metadata and scene records to Google Sheet."""
@@ -237,7 +277,6 @@ class GoogleWorkspaceClient:
                 spreadsheet = self.sheets_client.open(sheet_id_or_name)
 
             worksheet = spreadsheet.sheet1
-            # Ensure headers exist
             headers = ["Timestamp", "Run_ID", "Story_Title", "Scenes_Count", "Voices", "Video_Engine", "Status", "Output_URLs"]
             try:
                 first_row = worksheet.row_values(1)
@@ -294,7 +333,6 @@ class BrainProcessor:
 
         user_content = f"Story Title: {title}\nStory Content:\n{text}"
 
-        # Attempt with Gemini Rotator first
         while self.config.gemini_rotator.has_available():
             api_key = self.config.gemini_rotator.get_current()
             if not api_key:
@@ -340,7 +378,6 @@ class BrainProcessor:
         elif res.status_code in [429, 503, 504]:
             raise RuntimeError(f"HTTP {res.status_code}: {res.text}")
         else:
-            logger.error(f"[Gemini] Non-retryable error {res.status_code}: {res.text}")
             raise RuntimeError(f"Gemini API returned {res.status_code}")
 
     def _call_huggingface_llm(self, system_prompt: str, user_content: str) -> Optional[Dict[str, Any]]:
@@ -367,7 +404,6 @@ class BrainProcessor:
         return None
 
     def _build_deterministic_breakdown(self, title: str, text: str) -> Dict[str, Any]:
-        """Provides a safe, resilient scene breakdown if all external LLMs are down."""
         sentences = [s.strip() for s in text.replace("\n", " ").split("।") if s.strip()]
         if not sentences:
             sentences = ["গভীর মহাকাশে একাকী ঘুরে বেড়াচ্ছিল একটি প্রাচীন নভোযান।"]
@@ -391,19 +427,29 @@ class BrainProcessor:
 
 
 # ==============================================================================
-# 4. AUDIO GENERATION (edge-tts) - 4 REGIONAL BENGALI VOICES
+# 4. AUDIO GENERATION (edge-tts) - DIALECTS & 4 REGIONAL VOICES
 # ==============================================================================
 
 class BengaliAudioGenerator:
-    """Generates natural Bengali voiceovers across 4 distinct voice options."""
+    """Generates natural Bengali voiceovers across regional dialects and 4 distinct voices."""
     def __init__(self, config: PipelineConfig):
         self.config = config
+
+    async def generate_audio_with_edge_tts(self, text: str, dialect: str = "none", output_filename: str = "generated_audio.mp3") -> str:
+        """ডায়ালেক্ট বা ভাষা অনুযায়ী edge-tts দিয়ে অডিও জেনারেট করার ফাংশন"""
+        import edge_tts
+        voice = self.config.dialect_voice_mapping.get(dialect.lower(), "bn-BD-NabanitaNeural")
+
+        communicator = edge_tts.Communicate(text, voice, rate="+5%", pitch="-1Hz")
+        await communicator.save(output_filename)
+        logger.info(f"[AudioGen] Audio generated: {output_filename} using voice: {voice} (dialect: {dialect})")
+        return output_filename
 
     async def generate_voice_track(self, scenes: List[Dict[str, Any]], voice_key: str) -> Dict[str, Any]:
         import edge_tts
         voice_info = self.config.bengali_voices[voice_key]
         voice_name = voice_info["name"]
-        logger.info(f"[AudioGen] Generating voice '{voice_info['label']}' ({voice_name})...")
+        logger.info(f"[AudioGen] Generating full voice track '{voice_info['label']}' ({voice_name})...")
 
         voice_dir = self.config.audio_dir / voice_key
         voice_dir.mkdir(parents=True, exist_ok=True)
@@ -414,11 +460,10 @@ class BengaliAudioGenerator:
             narration = sc["narration_bn"]
             out_file = voice_dir / f"scene_{scene_num}.mp3"
 
-            communicate = edge_tts.Communicate(text=narration, voice=voice_name)
-            await communicate.save(str(out_file))
+            communicator = edge_tts.Communicate(text=narration, voice=voice_name, rate="+5%", pitch="-1Hz")
+            await communicator.save(str(out_file))
             scene_audio_files.append(str(out_file))
 
-        # Concatenate scene audio files into master audio
         master_audio_path = self.config.audio_dir / f"master_{voice_key}.mp3"
         concat_list_file = voice_dir / "concat_list.txt"
 
@@ -434,8 +479,6 @@ class BengaliAudioGenerator:
         subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
 
         duration = self._get_audio_duration(str(master_audio_path))
-        logger.info(f"[AudioGen] Master audio for '{voice_key}' rendered ({duration:.2f}s).")
-
         return {
             "voice_key": voice_key,
             "voice_name": voice_name,
@@ -471,8 +514,7 @@ class BengaliAudioGenerator:
 class HuggingFaceVideoEngine:
     """
     Renders video clips for each scene using Hugging Face Spaces/APIs.
-    Rotates through 6-7 HF tokens.
-    Provides automated fallback to SVD, Text-to-Video, or high-fidelity motion graphics.
+    Rotates through 6-7 HF tokens with automated multi-tier fallback.
     """
     def __init__(self, config: PipelineConfig):
         self.config = config
@@ -496,7 +538,6 @@ class HuggingFaceVideoEngine:
         return str(out_path)
 
     def _try_hf_space_generation(self, prompt: str, out_path: str, duration: float) -> bool:
-        """Attempts generation using Hugging Face Space client with token rotation."""
         from gradio_client import Client
         spaces_to_try = [
             "vdo/Text-to-Video",
@@ -523,7 +564,6 @@ class HuggingFaceVideoEngine:
         return False
 
     def _generate_scene_image(self, prompt: str, scene_num: int) -> str:
-        """Generates a high-quality base frame via HF Inference API or deterministic fallback."""
         import requests
         img_out = self.config.assets_dir / f"scene_{scene_num}_frame.jpg"
 
@@ -545,11 +585,10 @@ class HuggingFaceVideoEngine:
                 self.config.hf_rotator.rotate(f"Image API error: {e}")
 
         # Deterministic stylized graphic generation using Pillow
-        from PIL import Image, ImageDraw, ImageFont
+        from PIL import Image, ImageDraw
         img = Image.new("RGB", (1280, 720), color=(15, 23, 42))
         draw = ImageDraw.Draw(img)
 
-        # Gradient overlay
         for y in range(720):
             r = int(15 + (y / 720) * 40)
             g = int(23 + (y / 720) * 30)
@@ -562,12 +601,10 @@ class HuggingFaceVideoEngine:
         return str(img_out)
 
     def _animate_image_to_video(self, img_path: str, camera_motion: str, duration: float, out_path: str):
-        """Converts static image to dynamic cinematic video clip via FFmpeg Ken-Burns motion filters."""
         motion = camera_motion.lower()
         fps = 25
         total_frames = int(duration * fps)
 
-        # Camera motion mathematical filters
         if "zoom" in motion or "push" in motion:
             vf = f"zoompan=z='min(zoom+0.0015,1.25)':d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720:fps={fps}"
         elif "pan" in motion:
@@ -593,11 +630,7 @@ class HuggingFaceVideoEngine:
 # ==============================================================================
 
 class AudioVideoSyncer:
-    """
-    Syncs each of the 4 generated audio voice tracks with the video sequence.
-    Uses Librosa cross-correlation & audio duration stretching (atempo) to produce
-    4 perfectly synced final video editions.
-    """
+    """Syncs 4 generated audio tracks with the video sequence via Librosa & FFmpeg."""
     def __init__(self, config: PipelineConfig):
         self.config = config
 
@@ -608,7 +641,6 @@ class AudioVideoSyncer:
     ) -> Dict[str, str]:
         logger.info("[AutoSync] Merging and aligning video with 4 regional voice tracks...")
 
-        # Step 1: Concatenate video clips into a single master video stream
         concat_file = self.config.work_dir / "video_concat.txt"
         with open(concat_file, "w", encoding="utf-8") as f:
             for vc in video_clips:
@@ -623,11 +655,8 @@ class AudioVideoSyncer:
         subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
 
         video_duration = self._get_media_duration(str(raw_master_video))
-        logger.info(f"[AutoSync] Raw master video duration: {video_duration:.2f}s")
-
         final_editions = {}
 
-        # Step 2: For each of the 4 voices, compute timing correlation and output final MP4
         for voice_key, a_info in audio_results.items():
             voice_name = a_info["label"]
             audio_path = a_info["master_audio_path"]
@@ -636,13 +665,8 @@ class AudioVideoSyncer:
             out_filename = f"final_video_{voice_key}.mp4"
             final_output_path = self.config.output_dir / out_filename
 
-            # Calculate stretch/tempo factor with Librosa validation
             tempo_factor = self._compute_sync_tempo(str(raw_master_video), audio_path, video_duration, audio_duration)
 
-            logger.info(f"[AutoSync] Syncing Edition '{voice_name}' (tempo scale: {tempo_factor:.3f})...")
-
-            # Merge audio + video with smooth crossfade and subtitle overlay
-            # If video is shorter than audio, loop or hold last frame; if audio shorter, fade out
             cmd_merge = [
                 "ffmpeg", "-y",
                 "-i", str(raw_master_video),
@@ -656,23 +680,18 @@ class AudioVideoSyncer:
                 str(final_output_path)
             ]
             subprocess.run(cmd_merge, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-
-            logger.info(f"[AutoSync] Successfully generated final video: {final_output_path}")
             final_editions[voice_key] = str(final_output_path)
 
         return final_editions
 
     def _compute_sync_tempo(self, video_path: str, audio_path: str, v_dur: float, a_dur: float) -> float:
-        """Calculates precise tempo synchronization ratio using duration and librosa onset analysis."""
         try:
             import librosa
             y, sr = librosa.load(audio_path, sr=22050)
             onset_env = librosa.onset.onset_strength(y=y, sr=sr)
             tempo, _ = librosa.beat.beat_track(onset_envelope=onset_env, sr=sr)
-            # Bound tempo stretch factor between 0.85 and 1.25 to prevent pitch distortion
             ratio = a_dur / max(v_dur, 0.1)
-            bounded_ratio = max(0.85, min(1.25, ratio))
-            return bounded_ratio
+            return max(0.85, min(1.25, ratio))
         except Exception:
             return 1.0
 
@@ -687,11 +706,36 @@ class AudioVideoSyncer:
 # ==============================================================================
 
 class TelegramDelivery:
-    """Stores character assets and distributes 4 final video editions to Telegram."""
+    """Stores character assets and distributes standalone audio & final video editions to Telegram."""
     def __init__(self, config: PipelineConfig):
         self.config = config
         self.bot_token = config.telegram_bot_token.strip()
         self.channel_id = config.telegram_channel_id.strip()
+
+    def send_audio_to_telegram(self, audio_path: str, caption: str = "AI Generated Audio Script") -> bool:
+        """জেনারেট করা অডিও ফাইলটি সরাসরি টেলিগ্রাম চ্যানেলে পাঠানোর ফাংশন"""
+        if not self.bot_token or not self.channel_id:
+            logger.info(f"[Telegram] (Offline) Audio saved locally at: {audio_path}")
+            return False
+
+        import requests
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendAudio"
+
+        try:
+            with open(audio_path, "rb") as audio_file:
+                files = {"audio": audio_file}
+                data = {"chat_id": self.channel_id, "caption": caption}
+                response = requests.post(url, files=files, data=data, timeout=60)
+
+            if response.status_code == 200:
+                logger.info(f"[Telegram] Audio successfully sent to Telegram channel ({self.channel_id})!")
+                return True
+            else:
+                logger.warning(f"[Telegram] Failed to send audio to Telegram: {response.text}")
+                return False
+        except Exception as e:
+            logger.error(f"[Telegram] Exception sending audio: {e}")
+            return False
 
     def upload_character_asset(self, image_path: str, caption: str):
         if not self.bot_token or not self.channel_id:
@@ -755,26 +799,46 @@ class VideoAutomationPipeline:
         self.syncer = AudioVideoSyncer(config)
         self.telegram = TelegramDelivery(config)
 
-    async def run(self):
+    async def run(self, audio_only: bool = False):
         run_id = f"RUN-{int(time.time())}"
         logger.info(f"============================================================")
         logger.info(f" STARTING AI VIDEO GENERATION PIPELINE [ID: {run_id}]")
+        logger.info(f" Mode: {'Audio Only' if audio_only else 'Full Video Pipeline'}")
         logger.info(f"============================================================")
 
-        # Step 1: Read script from Google Doc
-        title, raw_content = self.workspace.read_story_doc(self.config.story_storage_doc)
-        logger.info(f"[Pipeline] Story Title: '{title}'")
+        # Step 1: Read script and parse latest entry (Video N | YYYY-MM-DD, Dialect, Script)
+        raw_doc_content = self.workspace.get_latest_script_from_doc(self.config.story_storage_doc)
+        video_header, dialect, script_text = self.workspace.parse_latest_entry(raw_doc_content)
 
-        # Step 2: Brain analysis (Gemini API with multi-token rotation)
-        structured_story = self.brain.analyze_script(title, raw_content)
+        logger.info(f"[Pipeline] Video Header: '{video_header}'")
+        logger.info(f"[Pipeline] Detected Dialect: '{dialect}'")
+        logger.info(f"[Pipeline] Script Content: {len(script_text)} characters")
+
+        # Step 2: Generate standalone dialect audio & send to Telegram
+        standalone_audio = str(self.config.audio_dir / "latest_dialect_audio.mp3")
+        await self.audio_gen.generate_audio_with_edge_tts(
+            text=script_text,
+            dialect=dialect,
+            output_filename=standalone_audio
+        )
+
+        audio_caption = f"🎙️ {video_header}\n🗣️ Dialect: {dialect.capitalize()}\n⚡ Generated by Edge-TTS"
+        self.telegram.send_audio_to_telegram(standalone_audio, caption=audio_caption)
+
+        if audio_only:
+            logger.info("[Pipeline] Audio-only execution finished successfully.")
+            return
+
+        # Step 3: Brain analysis (Gemini API with multi-token rotation)
+        structured_story = self.brain.analyze_script(video_header, script_text)
         scenes = structured_story.get("scenes", [])
         character_prompt = structured_story.get("character_visual_prompt", "hero character, 8k cinematic")
         logger.info(f"[Pipeline] Parsed {len(scenes)} scenes.")
 
-        # Step 3: Audio Generation (edge-tts for 4 Bengali voices)
+        # Step 4: Multi-voice Audio Generation (edge-tts for 4 Bengali voices)
         audio_tracks = await self.audio_gen.generate_all_voices(scenes)
 
-        # Step 4: Video Generation (Hugging Face with multi-token rotation)
+        # Step 5: Video Generation (Hugging Face with multi-token rotation)
         video_clips = []
         for sc in scenes:
             clip_path = self.video_engine.render_scene_video(
@@ -782,24 +846,24 @@ class VideoAutomationPipeline:
             )
             video_clips.append(clip_path)
 
-        # Step 5: Multi-Voice Output & Auto-Sync (Librosa + FFmpeg)
+        # Step 6: Multi-Voice Output & Auto-Sync (Librosa + FFmpeg)
         final_videos = self.syncer.assemble_and_sync_all_editions(video_clips, audio_tracks)
 
-        # Step 6: Telegram Integration (Asset storage + Video delivery)
+        # Step 7: Telegram Integration (Asset storage + Video delivery)
         first_frame = self.config.assets_dir / "scene_1_frame.jpg"
         if first_frame.exists():
-            self.telegram.upload_character_asset(str(first_frame), f"Visual Concept: {title}")
+            self.telegram.upload_character_asset(str(first_frame), f"Visual Concept: {video_header}")
 
         for v_key, video_path in final_videos.items():
             label = self.config.bengali_voices[v_key]["label"]
-            self.telegram.deliver_video_edition(video_path, title, label)
+            self.telegram.deliver_video_edition(video_path, video_header, label)
 
-        # Step 7: Log to Google Sheets
+        # Step 8: Log to Google Sheets
         self.workspace.log_to_sheet(
             self.config.model_storage_sheet,
             {
                 "run_id": run_id,
-                "title": title,
+                "title": video_header,
                 "scenes_count": len(scenes),
                 "voices": [v["label"] for v in self.config.bengali_voices.values()],
                 "video_engine": "Hugging Face Multi-Token Rotation",
@@ -817,12 +881,13 @@ class VideoAutomationPipeline:
 
 def main():
     parser = argparse.ArgumentParser(description="Automated AI Video Generation Pipeline")
+    parser.add_argument("--audio-only", action="store_true", help="Generate and send dialect audio only")
     parser.add_argument("--dry-run", action="store_true", help="Run with mock inputs for validation")
     args = parser.parse_args()
 
     config = PipelineConfig()
     pipeline = VideoAutomationPipeline(config)
-    asyncio.run(pipeline.run())
+    asyncio.run(pipeline.run(audio_only=args.audio_only))
 
 
 if __name__ == "__main__":
