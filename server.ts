@@ -558,6 +558,31 @@ app.post('/api/video-download', async (req: Request, res: Response) => {
   }
 });
 
+// Live System Prompt Execution
+app.post('/api/ai/test-system-prompt', async (req: Request, res: Response) => {
+  try {
+    const { systemInstruction = '', userInput = '', temperature = 0.2 } = req.body;
+    if (!userInput.trim()) {
+      return res.status(400).json({ error: 'userInput is required' });
+    }
+
+    const ai = getGenAIClient();
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: userInput,
+      config: {
+        systemInstruction: systemInstruction || undefined,
+        temperature: Number(temperature),
+      },
+    });
+
+    res.json({ output: response.text || '' });
+  } catch (error: any) {
+    console.error('System prompt test error:', error);
+    res.status(500).json({ error: error?.message || 'Failed to execute system prompt' });
+  }
+});
+
 // Pipeline & Multi-Agent Personas API
 app.get('/api/pipeline/personas', async (_req: Request, res: Response) => {
   try {

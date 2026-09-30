@@ -19,6 +19,7 @@ import { StoryboardDirector } from './components/StoryboardDirector';
 import { PresetsModal } from './components/PresetsModal';
 import { HistoryDrawer } from './components/HistoryDrawer';
 import { PipelineManager } from './components/PipelineManager';
+import { SystemPromptsModal } from './components/SystemPromptsModal';
 import {
   checkApiHealth,
   checkApiStatus,
@@ -52,6 +53,7 @@ export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'studio' | 'pipeline'>('studio');
   const [isPresetsOpen, setIsPresetsOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isSystemPromptsOpen, setIsSystemPromptsOpen] = useState(false);
 
   // Preemptive API Health State
   const [apiHealth, setApiHealth] = useState<ApiHealthStatus>({
@@ -507,6 +509,7 @@ export const App: React.FC = () => {
         onRefreshHealth={handleRefreshHealth}
         onOpenPresets={() => setIsPresetsOpen(true)}
         onOpenHistory={() => setIsHistoryOpen(true)}
+        onOpenSystemPrompts={() => setIsSystemPromptsOpen(true)}
         onNewProject={handleNewProject}
         historyCount={projects.length}
       />
@@ -635,6 +638,12 @@ export const App: React.FC = () => {
         isOpen={isPresetsOpen}
         onClose={() => setIsPresetsOpen(false)}
         onSelectPreset={handleSelectPreset}
+      />
+
+      {/* System Prompts & Workflows Modal */}
+      <SystemPromptsModal
+        isOpen={isSystemPromptsOpen}
+        onClose={() => setIsSystemPromptsOpen(false)}
       />
 
       {/* History Drawer */}

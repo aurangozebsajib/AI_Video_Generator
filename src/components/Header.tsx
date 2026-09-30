@@ -10,6 +10,7 @@ interface HeaderProps {
   onRefreshHealth: () => void;
   onOpenPresets: () => void;
   onOpenHistory: () => void;
+  onOpenSystemPrompts?: () => void;
   onNewProject: () => void;
   historyCount: number;
 }
@@ -21,6 +22,7 @@ export const Header: React.FC<HeaderProps> = ({
   onRefreshHealth,
   onOpenPresets,
   onOpenHistory,
+  onOpenSystemPrompts,
   onNewProject,
   historyCount,
 }) => {
@@ -72,6 +74,18 @@ export const Header: React.FC<HeaderProps> = ({
             <Compass className="w-4 h-4 text-purple-400" />
             <span className="hidden sm:inline">Inspiration Presets</span>
           </button>
+
+          {/* System Prompts Modal Button */}
+          {onOpenSystemPrompts && (
+            <button
+              onClick={onOpenSystemPrompts}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white bg-slate-900/80 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 rounded-lg transition-all"
+              title="System Instructions & Prompt Templates"
+            >
+              <Sparkles className="w-4 h-4 text-emerald-400" />
+              <span className="hidden sm:inline">System Prompts</span>
+            </button>
+          )}
 
           {/* History Button */}
           <button

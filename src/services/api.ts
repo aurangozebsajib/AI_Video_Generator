@@ -235,3 +235,21 @@ export async function runMultiAgentBrain(scriptText: string, dialect = 'none'): 
   return await res.json();
 }
 
+export async function executeSystemPromptTest(
+  systemInstruction: string,
+  userInput: string,
+  temperature = 0.2
+): Promise<string> {
+  const res = await fetch('/api/ai/test-system-prompt', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ systemInstruction, userInput, temperature }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Failed to execute system prompt test');
+  }
+  const data = await res.json();
+  return data.output || '';
+}
+
