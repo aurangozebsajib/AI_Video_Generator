@@ -46,11 +46,7 @@ logger = logging.getLogger("AIVideoPipeline")
 # ==============================================================================
 
 SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_JSON", "").strip()
-
-# Check for doc_id_override with fallback to STORY_STORAGE_DOC
-DOC_ID_OVERRIDE = os.environ.get("DOC_ID_OVERRIDE", "").strip()
-STORY_DOC_ID = DOC_ID_OVERRIDE or os.environ.get("STORY_STORAGE_DOC", "").strip()
-
+STORY_DOC_ID = os.environ.get("STORY_STORAGE_DOC", "").strip()
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHANNEL_ID = os.environ.get("TELEGRAM_CHANNEL_ID", "").strip()
 GOOGLE_AI_STUDIO_KEY = (os.environ.get("GOOGLE_AI_STUDIO_KEY") or os.environ.get("GEMINI_API_KEY", "")).strip()
@@ -705,15 +701,13 @@ async def main():
         print(json.dumps(health_result, indent=2))
         return
 
-    # Determine target doc ID: CLI argument > DOC_ID_OVERRIDE env > STORY_STORAGE_DOC env
-    target_doc_id = args.doc_id.strip() or DOC_ID_OVERRIDE or STORY_DOC_ID
+    # Determine target doc ID: CLI argument or STORY_STORAGE_DOC repository secret
+    target_doc_id = args.doc_id.strip() or STORY_DOC_ID
 
     logger.info("====================================================================")
     logger.info(" 🎬 AI VIDEO & AUDIO GENERATION PIPELINE")
-    logger.info(f" ⚙️ Mode: {'DRY RUN (Simulated)' if is_dry_run else 'PRODUCTION (Live)'}")
-    logger.info(f" 📄 Target Doc ID: {target_doc_id or '(Default Secret / Fallback)'}")
-    if DOC_ID_OVERRIDE:
-        logger.info(f" 🔄 Doc Override Active: {DOC_ID_OVERRIDE}")
+    logger.info(f" ⚙️ Mode: {'DRY RUN (Simulated)' if is_dry_run else 'AUTOMATED PRODUCTION'}")
+    logger.info(f" 📄 Target Doc ID: {target_doc_id or '(Configured Secret)'}")
     logger.info(f" 🩺 API Health: {health_result['status'].upper()} (Gemini: {health_result['gemini']['details']}, Telegram: {health_result['telegram']['details']})")
     logger.info("====================================================================")
 
