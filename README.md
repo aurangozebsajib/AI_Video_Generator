@@ -70,7 +70,34 @@ The automated pipeline executes unattended via GitHub Actions or CLI to transfor
 
 ---
 
-## 🛠️ GitHub Actions Automation (`.github/workflows/pipeline.yml`)
+## 📁 Modular Project Structure
+
+```
+├── audio/                      # Audio Processing & Speech Synthesis
+│   ├── __init__.py
+│   └── tts.py                  # Edge-TTS multi-voice synthesis (4 Bengali voices, +5% rate, -1Hz pitch)
+│
+├── brain/                      # Cognitive Intelligence & Script Processing
+│   ├── __init__.py
+│   ├── docs.py                 # Google Docs & Sheets ingestion via Service Account
+│   ├── gemini.py               # Gemini 2.5 Flash LLM polish & token rotation pool
+│   └── parser.py               # Document header parsing & scene prompt decomposition
+│
+├── video/                      # Video Generation, Sync & Multiplexing
+│   ├── __init__.py
+│   ├── generator.py            # Scene visual clip generator (Hugging Face / procedural motion)
+│   └── sync.py                 # Librosa tempo & audio beat analysis, FFmpeg multi-edition auto-sync
+│
+├── telegram/                   # Dispatcher & Health Diagnostics
+│   ├── __init__.py
+│   └── dispatcher.py           # Sequential audio & video delivery, HTML formatting, rate limiting
+│
+├── main.py                     # Clean Master Orchestrator (CLI & CI entrypoint)
+├── server.ts                   # Express Backend Proxy with Deep Health Diagnostics (/api/health)
+└── src/                        # Interactive React Studio (Veo 3.1 & Gemini Prompt Studio)
+```
+
+---
 
 The repository includes a ready-to-run GitHub Actions workflow that automates execution:
 
