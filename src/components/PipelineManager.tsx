@@ -21,6 +21,7 @@ import {
   updatePersona,
   parseGoogleDocScript,
   runPipelineSimulation,
+  runMultiAgentBrain,
 } from '../services/api';
 
 interface PipelineManagerProps {
@@ -50,6 +51,8 @@ export const PipelineManager: React.FC<PipelineManagerProps> = ({
 
   // Pipeline simulation state
   const [isRunningPipeline, setIsRunningPipeline] = useState(false);
+  const [isRunningMultiAgent, setIsRunningMultiAgent] = useState(false);
+  const [multiAgentManifest, setMultiAgentManifest] = useState<any>(null);
   const [pipelineLog, setPipelineLog] = useState<string | null>(null);
   const [simulationStatus, setSimulationStatus] = useState<'idle' | 'running' | 'success' | 'failed'>('idle');
 
@@ -125,6 +128,29 @@ export const PipelineManager: React.FC<PipelineManagerProps> = ({
     }
   };
 
+  const handleRunMultiAgentBrain = async () => {
+    try {
+      setIsRunningMultiAgent(true);
+      const res = await runMultiAgentBrain(docScriptInput, parsedData?.dialect || 'none');
+      if (res.manifest) {
+        setMultiAgentManifest(res.manifest);
+        setPipelineLog((prev) => 
+          (prev ? prev + '\n\n' : '') + 
+          `[Multi-Agent Cascade]:\n` + 
+          `Director: ${res.manifest.agents_executed?.director?.role} (${res.manifest.agents_executed?.director?.provider_used})\n` +
+          `Writer: ${res.manifest.agents_executed?.writer?.role} (${res.manifest.agents_executed?.writer?.provider_used})\n` +
+          `Designer: ${res.manifest.agents_executed?.designer?.role} (${res.manifest.agents_executed?.designer?.provider_used})\n` +
+          `Style: ${res.manifest.agents_executed?.style?.role} (${res.manifest.agents_executed?.style?.provider_used})\n` +
+          `Scenes Directed: ${res.manifest.scenes?.length || 0}\n`
+        );
+      }
+    } catch (err: any) {
+      console.error('Multi-agent execution error:', err);
+    } finally {
+      setIsRunningMultiAgent(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Banner: Architecture & Capabilities Overview */}
@@ -139,11 +165,20 @@ export const PipelineManager: React.FC<PipelineManagerProps> = ({
               Google Doc Script Ingestion & Multi-Voice Engine
             </h2>
             <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
-              Orchestrating Google Docs ingestion, Edge-TTS multi-voice synthesis (4 regional editions), Librosa audio tempo cross-correlation, FFmpeg video assembly, and automated Telegram channel dispatch.
+              Orchestrating 4 distinct AI providers (Grok, Gemini, OpenRouter, Cloudflare), Google Docs ingestion, Edge-TTS multi-voice synthesis (4 regional editions), Librosa audio tempo cross-correlation, FFmpeg video assembly, and automated Telegram channel dispatch.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={handleRunMultiAgentBrain}
+              disabled={isRunningMultiAgent}
+              className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl bg-purple-700 hover:bg-purple-600 text-white shadow-lg shadow-purple-600/25 transition-all disabled:opacity-50"
+            >
+              <Users className={`w-3.5 h-3.5 ${isRunningMultiAgent ? 'animate-spin' : ''}`} />
+              <span>{isRunningMultiAgent ? 'Running 4 Agents...' : 'Run 4-Agent Brain Cascade'}</span>
+            </button>
+
             <button
               onClick={handleRunPipelineSimulation}
               disabled={isRunningPipeline}
@@ -290,6 +325,78 @@ export const PipelineManager: React.FC<PipelineManagerProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Section 2B: Multi-Agent Cascade Output Manifest */}
+          {multiAgentManifest && (
+            <div className="bg-slate-900/70 rounded-2xl border border-purple-500/40 p-5 shadow-xl backdrop-blur-md space-y-4 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between pb-3 border-b border-purple-500/20">
+                <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                  <span>Heterogeneous Multi-Agent Output Manifest</span>
+                </div>
+                <span className="text-[10px] text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded font-mono">
+                  Grok • Gemini • OpenRouter • Cloudflare
+                </span>
+              </div>
+
+              {/* Provider allocation tags */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
+                  <span className="text-slate-500 block text-[10px]">Director:</span>
+                  <span className="font-semibold text-slate-200">Grok</span>
+                  <span className="block text-[9px] text-purple-400 uppercase font-mono mt-0.5">
+                    {multiAgentManifest.agents_executed?.director?.provider_used || 'Active'}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
+                  <span className="text-slate-500 block text-[10px]">Script & Narration:</span>
+                  <span className="font-semibold text-slate-200">Gemini</span>
+                  <span className="block text-[9px] text-emerald-400 uppercase font-mono mt-0.5">
+                    {multiAgentManifest.agents_executed?.writer?.provider_used || 'Active'}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
+                  <span className="text-slate-500 block text-[10px]">Character Designer:</span>
+                  <span className="font-semibold text-slate-200">OpenRouter</span>
+                  <span className="block text-[9px] text-amber-400 uppercase font-mono mt-0.5">
+                    {multiAgentManifest.agents_executed?.designer?.provider_used || 'Active'}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
+                  <span className="text-slate-500 block text-[10px]">Style & Utility:</span>
+                  <span className="font-semibold text-slate-200">Cloudflare</span>
+                  <span className="block text-[9px] text-cyan-400 uppercase font-mono mt-0.5">
+                    {multiAgentManifest.agents_executed?.style?.provider_used || 'Active'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Character Bible */}
+              {multiAgentManifest.character_bible && (
+                <div className="p-3 rounded-xl bg-slate-950/90 border border-slate-800 text-xs">
+                  <span className="font-semibold text-slate-300 block mb-1">🎭 Character Consistency Bible:</span>
+                  <p className="text-slate-400 leading-relaxed">{multiAgentManifest.character_bible}</p>
+                </div>
+              )}
+
+              {/* Directed Scenes Breakdown */}
+              <div className="space-y-2">
+                <span className="font-semibold text-xs text-slate-300 block">🎬 Directed Visual Scenes:</span>
+                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                  {multiAgentManifest.scenes?.map((sc: any, idx: number) => (
+                    <div key={idx} className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800/80 text-xs space-y-1">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-bold text-indigo-300">Scene {sc.scene_number}</span>
+                        <span className="text-slate-500 font-mono">{sc.duration_sec}s • {sc.camera_movement}</span>
+                      </div>
+                      <p className="text-slate-300 text-[11px]"><strong className="text-slate-400">Narration:</strong> {sc.narration}</p>
+                      <p className="text-slate-400 text-[10px]"><strong className="text-slate-500">Visual:</strong> {sc.visual_prompt}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right Column (5 cols): 4 Bengali Voices & Pipeline Simulation Terminal */}

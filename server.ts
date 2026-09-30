@@ -676,6 +676,44 @@ app.post('/api/pipeline/run-dry-run', async (req: Request, res: Response) => {
   }
 });
 
+// Direct Multi-Agent Brain Orchestration API
+app.post('/api/pipeline/run-multi-agent-brain', async (req: Request, res: Response) => {
+  try {
+    const { execFile } = await import('child_process');
+    const { scriptText = '', dialect = 'none' } = req.body;
+    const cleanDialect = dialect.replace(/[^a-zA-Z0-9_\-]/g, '') || 'none';
+
+    const pythonCode = `
+import json, sys
+from brain.multi_agent import orchestrate_multi_agent_brain
+
+script = sys.stdin.read()
+manifest = orchestrate_multi_agent_brain(script, dialect="${cleanDialect}", dry_run=True)
+print("__JSON_START__" + json.dumps(manifest) + "__JSON_END__")
+`;
+
+    const child = execFile('python3', ['-c', pythonCode], { cwd: __dirname, timeout: 30000 }, (error, stdout, stderr) => {
+      if (stdout.includes('__JSON_START__') && stdout.includes('__JSON_END__')) {
+        const rawJson = stdout.split('__JSON_START__')[1].split('__JSON_END__')[0];
+        try {
+          const parsed = JSON.parse(rawJson);
+          return res.json({ success: true, manifest: parsed });
+        } catch {}
+      }
+      res.json({
+        success: !error,
+        manifest: null,
+        log: stdout + (stderr ? `\n${stderr}` : ''),
+      });
+    });
+
+    child.stdin?.write(scriptText || 'আসসালামু আলাইকুম! প্রযুক্তির উৎকর্ষে আমাদের নতুন এআই ভিডিও পাইপলাইনে স্বাগতম।');
+    child.stdin?.end();
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || 'Failed to execute multi-agent brain' });
+  }
+});
+
 // Client & Static Serving
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';

@@ -221,3 +221,17 @@ export async function runPipelineSimulation(fullVideo = true, docId?: string): P
   return await res.json();
 }
 
+export async function runMultiAgentBrain(scriptText: string, dialect = 'none'): Promise<{
+  success: boolean;
+  manifest: any;
+  log?: string;
+}> {
+  const res = await fetch('/api/pipeline/run-multi-agent-brain', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scriptText, dialect }),
+  });
+  if (!res.ok) throw new Error('Failed to execute multi-agent brain');
+  return await res.json();
+}
+

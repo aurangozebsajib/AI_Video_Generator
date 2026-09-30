@@ -6,7 +6,7 @@ Renders 4 synchronized video editions with respective Bengali regional voice edi
 import os
 import subprocess
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger("AIVideoPipeline.VideoSync")
 
@@ -106,14 +106,18 @@ async def run_full_video_pipeline(
     audio_results: List[Dict[str, Any]],
     dialect: str = "none",
     dry_run: bool = False,
+    scenes: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Renders scene clips and assembles all 4 synchronized video editions.
+    Renders scene clips and assembles all 4 synchronized video editions
+    using structured visual instructions from the multi-agent brain.
     """
     from video.generator import generate_scene_clips
     from brain.parser import segment_script_into_scenes
 
-    scenes = segment_script_into_scenes(script_text, scene_count=3)
+    if not scenes:
+        scenes = segment_script_into_scenes(script_text, scene_count=3)
+    
     clip_paths = generate_scene_clips(scenes, dry_run=dry_run)
 
     final_editions = []

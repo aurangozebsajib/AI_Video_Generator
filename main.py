@@ -48,6 +48,7 @@ from brain import (
     get_latest_script_from_doc,
     parse_doc_entries,
     call_gemini_api,
+    orchestrate_multi_agent_brain,
 )
 from audio import (
     generate_all_bengali_audio_versions,
@@ -118,25 +119,24 @@ async def main():
         dialect = "none"
 
     # -------------------------------------------------------------------------
-    # Stage 2: Brain - Gemini Script Polish (Optional)
+    # Stage 2: Brain - Heterogeneous Multi-Agent Brain Pipeline
+    # Grok (Director) -> Gemini (Writer) -> OpenRouter (Designer) -> Cloudflare (Style)
     # -------------------------------------------------------------------------
-    if GOOGLE_AI_STUDIO_KEY and not is_dry_run:
-        logger.info("\n[Stage 2: Brain] Refining script clarity via Gemini 2.5 Flash API...")
-        polish_prompt = (
-            f"Review this Bengali script for spoken narration clarity, preserving colloquial dialect ({dialect}). "
-            f"Return ONLY the polished Bengali script text:\n\n{script_text}"
-        )
-        polished = call_gemini_api(polish_prompt)
-        if polished and len(polished) > 10:
-            logger.info("-> Script successfully refined via Gemini 2.5 Flash.")
-            script_text = polished
+    logger.info("\n[Stage 2: Brain] Orchestrating Heterogeneous Multi-Agent Brain Pipeline...")
+    production_manifest = orchestrate_multi_agent_brain(
+        script_text=script_text,
+        dialect=dialect,
+        dry_run=is_dry_run,
+    )
+    refined_script = production_manifest.get("combined_narration", "").strip() or script_text
+    logger.info(f"-> Production Manifest ready with {len(production_manifest.get('scenes', []))} directed scenes.")
 
     # -------------------------------------------------------------------------
     # Stage 3: Audio - Simultaneous Multi-Voice Bengali Generation
     # -------------------------------------------------------------------------
     logger.info("\n[Stage 3: Audio] Generating 4 Regional Bengali Audio Editions simultaneously via Edge-TTS...")
     audio_results = await generate_all_bengali_audio_versions(
-        script_text,
+        refined_script,
         rate="+5%",
         pitch="-1Hz",
         dry_run=is_dry_run,
@@ -161,13 +161,14 @@ async def main():
         and (args.full_video or os.environ.get("RUN_FULL_VIDEO_PIPELINE", "true").lower() == "true")
     )
     if run_video:
-        logger.info("\n[Stage 5: Video] Rendering 4 Synchronized Video Editions...")
+        logger.info("\n[Stage 5: Video] Rendering 4 Synchronized Video Editions using Multi-Agent Directed Scenes...")
         video_editions = await run_full_video_pipeline(
             video_header=video_header,
-            script_text=script_text,
+            script_text=refined_script,
             audio_results=audio_results,
             dialect=dialect,
             dry_run=is_dry_run,
+            scenes=production_manifest.get("scenes"),
         )
 
         logger.info("\n[Stage 6: Telegram] Dispatching Video Editions to Telegram...")
