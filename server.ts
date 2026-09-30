@@ -35,9 +35,137 @@ function getGenAIClient(): GoogleGenAI {
 app.get('/api/status', (req: Request, res: Response) => {
   res.json({
     status: 'ok',
-    hasApiKey: Boolean(process.env.GEMINI_API_KEY),
+    hasApiKey: Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_STUDIO_KEY),
     timestamp: new Date().toISOString(),
   });
+});
+
+// Deep Preemptive Health Check for Gemini & Telegram APIs
+app.get('/api/health', async (req: Request, res: Response) => {
+  const geminiKey = (process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_STUDIO_KEY || '').trim();
+  const telegramToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+
+  const health = {
+    status: 'healthy' as 'healthy' | 'degraded' | 'error',
+    gemini: {
+      name: 'Gemini 2.5 Flash',
+      configured: Boolean(geminiKey),
+      accessible: false,
+      latencyMs: 0,
+      details: 'Unchecked',
+      error: undefined as string | undefined,
+    },
+    telegram: {
+      name: 'Telegram Bot Dispatch',
+      configured: Boolean(telegramToken),
+      accessible: false,
+      latencyMs: 0,
+      details: 'Unchecked',
+      error: undefined as string | undefined,
+    },
+    checkedAt: new Date().toISOString(),
+  };
+
+  // 1. Lightweight non-blocking ping to Gemini API (timeout: 4s)
+  const pingGemini = async () => {
+    if (!geminiKey) {
+      health.gemini.details = 'Unconfigured';
+      health.gemini.error = 'GEMINI_API_KEY is not configured in environment';
+      return;
+    }
+    const start = performance.now();
+    try {
+      // Lightweight models query to check auth & connectivity
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash?key=${geminiKey}`,
+        {
+          method: 'GET',
+          signal: AbortSignal.timeout(4000),
+        }
+      );
+      health.gemini.latencyMs = Math.round(performance.now() - start);
+
+      if (response.ok) {
+        health.gemini.accessible = true;
+        health.gemini.details = `Operational (${health.gemini.latencyMs}ms)`;
+      } else if (response.status === 400 || response.status === 403) {
+        health.gemini.error = 'Invalid API key or permission denied';
+        health.gemini.details = 'Authentication Failed';
+      } else {
+        health.gemini.error = `HTTP ${response.status} ${response.statusText}`;
+        health.gemini.details = `Status ${response.status}`;
+      }
+    } catch (err: any) {
+      health.gemini.latencyMs = Math.round(performance.now() - start);
+      if (err.name === 'TimeoutError') {
+        health.gemini.error = 'Connection timed out (>4000ms)';
+        health.gemini.details = 'Ping Timeout';
+      } else {
+        health.gemini.error = err.message || 'Unreachable';
+        health.gemini.details = 'Unreachable';
+      }
+    }
+  };
+
+  // 2. Lightweight non-blocking ping to Telegram Bot API (timeout: 4s)
+  const pingTelegram = async () => {
+    if (!telegramToken) {
+      health.telegram.details = 'Unconfigured';
+      health.telegram.error = 'TELEGRAM_BOT_TOKEN is not configured in environment';
+      return;
+    }
+    const start = performance.now();
+    try {
+      const response = await fetch(
+        `https://api.telegram.org/bot${telegramToken}/getMe`,
+        {
+          method: 'GET',
+          signal: AbortSignal.timeout(4000),
+        }
+      );
+      health.telegram.latencyMs = Math.round(performance.now() - start);
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.ok && data.result) {
+          health.telegram.accessible = true;
+          health.telegram.details = `@${data.result.username || 'bot'} (${health.telegram.latencyMs}ms)`;
+        } else {
+          health.telegram.error = data.description || 'Invalid Telegram Bot Token';
+          health.telegram.details = 'Invalid Token';
+        }
+      } else if (response.status === 401 || response.status === 404) {
+        health.telegram.error = 'Unauthorized: Invalid Telegram bot token';
+        health.telegram.details = 'Invalid Token';
+      } else {
+        health.telegram.error = `HTTP ${response.status}`;
+        health.telegram.details = `Status ${response.status}`;
+      }
+    } catch (err: any) {
+      health.telegram.latencyMs = Math.round(performance.now() - start);
+      if (err.name === 'TimeoutError') {
+        health.telegram.error = 'Connection timed out (>4000ms)';
+        health.telegram.details = 'Ping Timeout';
+      } else {
+        health.telegram.error = err.message || 'Unreachable';
+        health.telegram.details = 'Unreachable';
+      }
+    }
+  };
+
+  // Execute both pings in parallel without blocking the server
+  await Promise.allSettled([pingGemini(), pingTelegram()]);
+
+  // Overall status classification
+  if (health.gemini.accessible && (health.telegram.accessible || !health.telegram.configured)) {
+    health.status = 'healthy';
+  } else if (health.gemini.accessible || health.telegram.accessible) {
+    health.status = 'degraded';
+  } else {
+    health.status = 'error';
+  }
+
+  res.json(health);
 });
 
 // Prompt Enhancer API

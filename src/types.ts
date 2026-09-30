@@ -141,3 +141,19 @@ export interface PresetConcept {
   previewThumbnail: string;
   description: string;
 }
+
+export interface ServiceHealth {
+  name: string;
+  configured: boolean;
+  accessible: boolean;
+  latencyMs?: number;
+  details?: string;
+  error?: string;
+}
+
+export interface ApiHealthStatus {
+  status: 'healthy' | 'degraded' | 'error' | 'checking';
+  gemini: ServiceHealth;
+  telegram: ServiceHealth;
+  checkedAt: string;
+}

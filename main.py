@@ -198,6 +198,148 @@ def get_latest_script_from_doc(doc_id: str, dry_run: bool = False) -> str:
 
 
 # ==============================================================================
+# Preemptive API Health Check (Non-blocking lightweight pings)
+# ==============================================================================
+
+def check_api_health(dry_run: bool = False, timeout_sec: float = 4.0) -> dict:
+    """
+    Performs lightweight, non-blocking pings to Gemini and Telegram APIs
+    to preemptively detect connection timeouts or invalid tokens before pipeline execution.
+    """
+    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    health = {
+        "status": "healthy",
+        "gemini": {
+            "name": "Gemini 2.5 Flash",
+            "configured": bool(GOOGLE_AI_STUDIO_KEY),
+            "accessible": False,
+            "latency_ms": 0,
+            "details": "Unchecked",
+            "error": None
+        },
+        "telegram": {
+            "name": "Telegram Bot Dispatch",
+            "configured": bool(TELEGRAM_BOT_TOKEN),
+            "accessible": False,
+            "latency_ms": 0,
+            "details": "Unchecked",
+            "error": None
+        },
+        "checked_at": timestamp
+    }
+
+    if dry_run:
+        health["gemini"]["accessible"] = True
+        health["gemini"]["latency_ms"] = 35
+        health["gemini"]["details"] = "Simulated healthy (dry-run mode)"
+        health["telegram"]["accessible"] = True
+        health["telegram"]["latency_ms"] = 28
+        health["telegram"]["details"] = "Simulated healthy @mock_bot (dry-run mode)"
+        health["status"] = "healthy"
+        logger.info("[Health Check] Dry-run mode: Gemini and Telegram simulated healthy.")
+        return health
+
+    # 1. Lightweight non-blocking ping to Gemini API
+    if GOOGLE_AI_STUDIO_KEY:
+        import urllib.request
+        import urllib.error
+        start_t = time.time()
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash?key={GOOGLE_AI_STUDIO_KEY}"
+        req = urllib.request.Request(url, headers={"User-Agent": "AIVideoPipelineHealthCheck/1.0"})
+
+        try:
+            with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+                latency = int((time.time() - start_t) * 1000)
+                health["gemini"]["latency_ms"] = latency
+                if resp.status == 200:
+                    health["gemini"]["accessible"] = True
+                    health["gemini"]["details"] = f"Connected ({latency}ms)"
+                else:
+                    health["gemini"]["error"] = f"HTTP {resp.status}"
+                    health["gemini"]["details"] = f"Status {resp.status}"
+        except urllib.error.HTTPError as e:
+            latency = int((time.time() - start_t) * 1000)
+            health["gemini"]["latency_ms"] = latency
+            if e.code in (400, 403):
+                health["gemini"]["error"] = f"Invalid API Key or unauthorized (HTTP {e.code})"
+                health["gemini"]["details"] = "Auth Failed"
+            else:
+                health["gemini"]["error"] = f"HTTP {e.code}"
+                health["gemini"]["details"] = f"HTTP {e.code}"
+        except (urllib.error.URLError, socket.timeout, TimeoutError) as e:
+            latency = int((time.time() - start_t) * 1000)
+            health["gemini"]["latency_ms"] = latency
+            health["gemini"]["error"] = f"Connection timed out or failed ({e})"
+            health["gemini"]["details"] = "Timeout / Unreachable"
+        except Exception as e:
+            health["gemini"]["error"] = str(e)
+            health["gemini"]["details"] = "Unreachable"
+    else:
+        health["gemini"]["error"] = "GOOGLE_AI_STUDIO_KEY not set"
+        health["gemini"]["details"] = "Unconfigured"
+
+    # 2. Lightweight non-blocking ping to Telegram API
+    if TELEGRAM_BOT_TOKEN:
+        import urllib.request
+        import urllib.error
+        start_t = time.time()
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getMe"
+        req = urllib.request.Request(url, headers={"User-Agent": "AIVideoPipelineHealthCheck/1.0"})
+
+        try:
+            with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+                latency = int((time.time() - start_t) * 1000)
+                health["telegram"]["latency_ms"] = latency
+                raw_data = resp.read().decode("utf-8")
+                data = json.loads(raw_data) if raw_data else {}
+
+                if data.get("ok"):
+                    bot_user = data.get("result", {}).get("username", "bot")
+                    health["telegram"]["accessible"] = True
+                    health["telegram"]["details"] = f"@{bot_user} ({latency}ms)"
+                else:
+                    health["telegram"]["error"] = data.get("description", "Invalid Telegram token")
+                    health["telegram"]["details"] = "Token Invalid"
+        except urllib.error.HTTPError as e:
+            latency = int((time.time() - start_t) * 1000)
+            health["telegram"]["latency_ms"] = latency
+            if e.code in (401, 404):
+                health["telegram"]["error"] = "Unauthorized: Invalid Telegram bot token"
+                health["telegram"]["details"] = "Token Invalid"
+            else:
+                health["telegram"]["error"] = f"HTTP {e.code}"
+                health["telegram"]["details"] = f"HTTP {e.code}"
+        except (urllib.error.URLError, socket.timeout, TimeoutError) as e:
+            latency = int((time.time() - start_t) * 1000)
+            health["telegram"]["latency_ms"] = latency
+            health["telegram"]["error"] = f"Connection timed out or failed ({e})"
+            health["telegram"]["details"] = "Timeout / Unreachable"
+        except Exception as e:
+            health["telegram"]["error"] = str(e)
+            health["telegram"]["details"] = "Unreachable"
+    else:
+        health["telegram"]["error"] = "TELEGRAM_BOT_TOKEN not set"
+        health["telegram"]["details"] = "Unconfigured"
+
+    # Overall Status Classification
+    if health["gemini"]["accessible"] and (health["telegram"]["accessible"] or not health["telegram"]["configured"]):
+        health["status"] = "healthy"
+    elif health["gemini"]["accessible"] or health["telegram"]["accessible"]:
+        health["status"] = "degraded"
+    else:
+        health["status"] = "error"
+
+    logger.info(
+        f"[Preemptive Health Check] Status: {health['status'].upper()} | "
+        f"Gemini: {'OK' if health['gemini']['accessible'] else 'FAIL'} ({health['gemini']['details']}) | "
+        f"Telegram: {'OK' if health['telegram']['accessible'] else 'FAIL'} ({health['telegram']['details']})"
+    )
+
+    return health
+
+
+# ==============================================================================
 # Step 2 (Optional): Gemini API Script Polishing (with Strict Timeout & Error Handling)
 # ==============================================================================
 
@@ -551,10 +693,17 @@ async def main():
     parser.add_argument("--dry-run", action="store_true", help="Run in dry-run mode (simulate without external APIs)")
     parser.add_argument("--doc-id", type=str, default="", help="Override target Google Doc ID")
     parser.add_argument("--full-video", action="store_true", help="Execute full video generation and auto-sync pipeline")
+    parser.add_argument("--health-check", action="store_true", help="Perform preemptive health check of Gemini and Telegram APIs and exit")
     args = parser.parse_args()
 
     # Determine whether dry run is active
     is_dry_run = args.dry_run or ENV_DRY_RUN
+
+    # Preemptive API Health Check
+    health_result = check_api_health(dry_run=is_dry_run)
+    if args.health_check:
+        print(json.dumps(health_result, indent=2))
+        return
 
     # Determine target doc ID: CLI argument > DOC_ID_OVERRIDE env > STORY_STORAGE_DOC env
     target_doc_id = args.doc_id.strip() or DOC_ID_OVERRIDE or STORY_DOC_ID
@@ -565,6 +714,7 @@ async def main():
     logger.info(f" 📄 Target Doc ID: {target_doc_id or '(Default Secret / Fallback)'}")
     if DOC_ID_OVERRIDE:
         logger.info(f" 🔄 Doc Override Active: {DOC_ID_OVERRIDE}")
+    logger.info(f" 🩺 API Health: {health_result['status'].upper()} (Gemini: {health_result['gemini']['details']}, Telegram: {health_result['telegram']['details']})")
     logger.info("====================================================================")
 
     # Step 1: Read script

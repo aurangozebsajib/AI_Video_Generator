@@ -1,8 +1,13 @@
 import React from 'react';
 import { Film, Sparkles, History, Compass, Plus, Cpu, Info } from 'lucide-react';
+import { ApiHealthIndicator } from './ApiHealthIndicator';
+import { ApiHealthStatus } from '../types';
 
 interface HeaderProps {
   hasApiKey: boolean;
+  health: ApiHealthStatus;
+  isCheckingHealth: boolean;
+  onRefreshHealth: () => void;
   onOpenPresets: () => void;
   onOpenHistory: () => void;
   onNewProject: () => void;
@@ -11,6 +16,9 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   hasApiKey,
+  health,
+  isCheckingHealth,
+  onRefreshHealth,
   onOpenPresets,
   onOpenHistory,
   onNewProject,
@@ -46,15 +54,14 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Engine status & action buttons */}
+        {/* Engine status, Health Monitor & action buttons */}
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* Engine Status pill */}
-          <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs">
-            <Cpu className="w-3.5 h-3.5 text-indigo-400" />
-            <span className="text-slate-400">Engine:</span>
-            <span className="text-slate-200 font-medium">Veo 3.1 & Gemini 3.8</span>
-            <span className={`w-2 h-2 rounded-full ${hasApiKey ? 'bg-emerald-400 shadow-sm shadow-emerald-400/50' : 'bg-amber-400'}`} />
-          </div>
+          {/* Preemptive API Health Monitor */}
+          <ApiHealthIndicator
+            health={health}
+            isChecking={isCheckingHealth}
+            onRefreshHealth={onRefreshHealth}
+          />
 
           {/* Presets Button */}
           <button

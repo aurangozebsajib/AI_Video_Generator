@@ -18,6 +18,7 @@ import { StoryboardDirector } from './components/StoryboardDirector';
 import { PresetsModal } from './components/PresetsModal';
 import { HistoryDrawer } from './components/HistoryDrawer';
 import {
+  checkApiHealth,
   checkApiStatus,
   enhancePrompt,
   generateStoryboard,
@@ -28,6 +29,7 @@ import {
   downloadVeoVideo,
 } from './services/api';
 import {
+  ApiHealthStatus,
   AspectRatio,
   BengaliVoiceOption,
   BENGALI_VOICE_CONFIGS,
@@ -47,6 +49,25 @@ export const App: React.FC = () => {
   const [hasApiKey, setHasApiKey] = useState(true);
   const [isPresetsOpen, setIsPresetsOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+
+  // Preemptive API Health State
+  const [apiHealth, setApiHealth] = useState<ApiHealthStatus>({
+    status: 'checking',
+    gemini: {
+      name: 'Gemini 2.5 Flash',
+      configured: true,
+      accessible: true,
+      details: 'Connecting...',
+    },
+    telegram: {
+      name: 'Telegram Bot Dispatch',
+      configured: false,
+      accessible: false,
+      details: 'Connecting...',
+    },
+    checkedAt: new Date().toISOString(),
+  });
+  const [isCheckingHealth, setIsCheckingHealth] = useState(false);
 
   // Current Project State
   const [prompt, setPrompt] = useState(
@@ -90,11 +111,23 @@ export const App: React.FC = () => {
   const [isGeneratingAllVisuals, setIsGeneratingAllVisuals] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Load status and history on initial mount
+  // Preemptive API Health Check function
+  const handleRefreshHealth = async () => {
+    setIsCheckingHealth(true);
+    try {
+      const health = await checkApiHealth();
+      setApiHealth(health);
+      setHasApiKey(health.gemini.accessible || health.gemini.configured);
+    } catch (err) {
+      console.error('Failed to run preemptive health check:', err);
+    } finally {
+      setIsCheckingHealth(false);
+    }
+  };
+
+  // Load status, health, and history on initial mount
   useEffect(() => {
-    checkApiStatus().then((status) => {
-      setHasApiKey(status.hasApiKey);
-    });
+    handleRefreshHealth();
 
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -444,6 +477,9 @@ export const App: React.FC = () => {
       {/* Top Header */}
       <Header
         hasApiKey={hasApiKey}
+        health={apiHealth}
+        isCheckingHealth={isCheckingHealth}
+        onRefreshHealth={handleRefreshHealth}
         onOpenPresets={() => setIsPresetsOpen(true)}
         onOpenHistory={() => setIsHistoryOpen(true)}
         onNewProject={handleNewProject}

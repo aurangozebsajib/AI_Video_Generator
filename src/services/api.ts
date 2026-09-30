@@ -1,4 +1,4 @@
-import { StoryboardData } from '../types';
+import { ApiHealthStatus, StoryboardData } from '../types';
 
 export interface EnhancePromptResponse {
   enhancedPrompt: string;
@@ -15,6 +15,33 @@ export async function checkApiStatus(): Promise<{ status: string; hasApiKey: boo
     return await res.json();
   } catch (err: any) {
     return { status: 'error', hasApiKey: false };
+  }
+}
+
+export async function checkApiHealth(): Promise<ApiHealthStatus> {
+  try {
+    const res = await fetch('/api/health');
+    if (!res.ok) throw new Error(`Health check returned status ${res.status}`);
+    return await res.json();
+  } catch (err: any) {
+    return {
+      status: 'error',
+      gemini: {
+        name: 'Gemini 2.5 Flash',
+        configured: false,
+        accessible: false,
+        details: 'Connection Error',
+        error: err.message || 'Failed to ping backend',
+      },
+      telegram: {
+        name: 'Telegram Bot Dispatch',
+        configured: false,
+        accessible: false,
+        details: 'Connection Error',
+        error: err.message || 'Failed to ping backend',
+      },
+      checkedAt: new Date().toISOString(),
+    };
   }
 }
 
