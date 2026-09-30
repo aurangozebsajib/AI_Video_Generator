@@ -1,66 +1,59 @@
 """
-Bengali Regional TTS Synthesis Engine using Microsoft Edge-TTS & Pydub
-Supports 4 distinct regional Bengali voice editions and multi-speaker segments.
-
-CRITICAL DESIGN REQUIREMENT (No Concatenation Bug):
-Every speaker/segment is generated, named, and saved individually
-(e.g., speaker_1.mp3, speaker_2.mp3, generated_audio_nabanita_female_bd.mp3, etc.).
-No global concatenation loop merges them into a single long file unless explicitly requested.
+Edge-TTS Multi-Voice Bengali Speech Synthesis
+Supports 4 distinct regional Bengali voices with ID3 metadata embedding.
 """
-
 import os
+import time
 import shutil
+import subprocess
 import asyncio
 import logging
-from typing import Dict, Any, List, Optional
+from pathlib import Path
+from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger("AIVideoPipeline.Audio")
+TIMEOUT_EDGE_TTS = float(os.environ.get("TIMEOUT_EDGE_TTS", "45.0"))
 
-# Canonical 4 Bengali Voice Configurations
-BENGALI_VOICE_CONFIGS = [
+BENGALI_VOICE_CONFIGS: List[Dict[str, Any]] = [
     {
-        "id": "version_1_bd_female",
-        "speaker_id": "speaker_1",
-        "name": "Nabanita (Female, BD)",
+        "id": "v1_nabanita",
         "voice": "bn-BD-NabanitaNeural",
+        "name": "Nabanita",
+        "label": "Bangladesh Female (Nabanita)",
         "region": "Bangladesh",
         "gender": "Female",
         "filename": "generated_audio_nabanita_female_bd.mp3",
         "speaker_filename": "speaker_1.mp3",
-        "description": "Natural, clear, articulate Bengali female news-anchor delivery.",
     },
     {
-        "id": "version_2_bd_male",
-        "speaker_id": "speaker_2",
-        "name": "Pradeep (Male, BD)",
+        "id": "v2_pradeep",
         "voice": "bn-BD-PradeepNeural",
+        "name": "Pradeep",
+        "label": "Bangladesh Male (Pradeep)",
         "region": "Bangladesh",
         "gender": "Male",
         "filename": "generated_audio_pradeep_male_bd.mp3",
         "speaker_filename": "speaker_2.mp3",
-        "description": "Deep baritone, authoritative, and cinematic dramatic Bengali narration.",
     },
     {
-        "id": "version_3_in_female",
-        "speaker_id": "speaker_3",
-        "name": "Tanishaa (Female, IN)",
+        "id": "v3_tanishaa",
         "voice": "bn-IN-TanishaaNeural",
-        "region": "India (Kolkata)",
+        "name": "Tanishaa",
+        "label": "India Bengali Female (Tanishaa)",
+        "region": "India",
         "gender": "Female",
         "filename": "generated_audio_tanishaa_female_in.mp3",
         "speaker_filename": "speaker_3.mp3",
-        "description": "Soft, melodious, gentle, and emotive Bengali storytelling voice.",
     },
     {
-        "id": "version_4_in_male",
-        "speaker_id": "speaker_4",
-        "name": "Bashkar (Male, IN)",
+        "id": "v4_bashkar",
         "voice": "bn-IN-BashkarNeural",
-        "region": "India (Kolkata)",
+        "name": "Bashkar",
+        "label": "India Bengali Male (Bashkar)",
+        "region": "India",
         "gender": "Male",
         "filename": "generated_audio_bashkar_male_in.mp3",
         "speaker_filename": "speaker_4.mp3",
-        "description": "Energetic, dynamic, bright, and lively regional storytelling tone.",
     },
 ]
 
@@ -76,233 +69,196 @@ DIALECT_VOICE_MAP = {
 }
 
 
-def write_dummy_audio_file(filepath: str, duration_sec: float = 3.0):
-    """
-    Creates a valid minimal MP3 file with silent MPEG audio sync frames
-    to ensure Librosa and FFmpeg never crash during simulation or offline fallback.
-    """
-    silent_frame = b"\xff\xfb\x90\x64" + (b"\x00" * 414)
-    frame_count = max(1, int(duration_sec * 38.28))
-    with open(filepath, "wb") as f:
-        f.write(silent_frame * frame_count)
-    logger.info(f"Fallback audio placeholder generated: {filepath} (~{duration_sec}s)")
+def write_dummy_audio_file(filepath: str, duration_sec: int = 4):
+    """Creates a valid minimal MP3 file with silent MPEG audio sync frames."""
+    Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+    mp3_frame = b'\xff\xfb\x90\x64' + (b'\x00' * 413)
+    with open(filepath, 'wb') as f:
+        for _ in range(max(1, duration_sec * 38)):
+            f.write(mp3_frame)
 
 
-def post_process_individual_audio(filepath: str) -> Optional[float]:
-    """
-    Optionally normalizes and inspects individual audio segments using Pydub.
-    Does NOT concatenate or merge with any other file.
-    Returns duration in seconds if successful.
-    """
+def embed_mp3_id3_metadata(filepath: str, title: str, artist: str, album: str, comment: str, date_str: str):
+    """Embeds ID3 metadata tags into MP3 files via FFmpeg."""
+    if not os.path.exists(filepath) or os.path.getsize(filepath) < 100:
+        return
+    temp_path = filepath + ".tagged.mp3"
+    cmd = [
+        "ffmpeg", "-y", "-i", filepath,
+        "-metadata", f"title={title}",
+        "-metadata", f"artist={artist}",
+        "-metadata", f"album={album}",
+        "-metadata", f"comment={comment}",
+        "-metadata", f"date={date_str}",
+        "-c", "copy", temp_path
+    ]
     try:
-        from pydub import AudioSegment
-        from pydub.effects import normalize
-
-        sound = AudioSegment.from_file(filepath, format="mp3")
-        # Normalize audio levels for crisp broadcast delivery
-        normalized = normalize(sound)
-        normalized.export(filepath, format="mp3", bitrate="192k")
-        duration_sec = len(normalized) / 1000.0
-        logger.debug(f"Pydub post-processed {filepath}: {duration_sec:.2f}s")
-        return duration_sec
-    except Exception as exc:
-        logger.debug(f"Pydub post-processing skipped for {filepath} ({exc})")
-        return None
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5.0)
+        if res.returncode == 0 and os.path.exists(temp_path) and os.path.getsize(temp_path) > 0:
+            os.replace(temp_path, filepath)
+    except Exception as e:
+        logger.debug(f"ID3 metadata tagger skipped ({e}).")
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
 
 
-async def generate_single_voice(
+async def generate_single_audio_edition(
     text: str,
-    voice_cfg: Dict[str, Any],
+    voice_config: Dict[str, Any],
     rate: str = "+5%",
     pitch: str = "-1Hz",
     dry_run: bool = False,
-    timeout_sec: float = 45.0,
     save_speaker_alias: bool = True,
 ) -> Dict[str, Any]:
-    """
-    Synthesizes a single audio edition via edge-tts with timeout safeguards.
-    Guarantees this voice is saved to its own isolated file.
-    """
-    primary_filename = voice_cfg.get("filename", "generated_audio.mp3")
-    speaker_filename = voice_cfg.get("speaker_filename", "")
-    voice_name = voice_cfg.get("voice", "bn-BD-NabanitaNeural")
-    edition_label = voice_cfg.get("name", "Voice Edition")
+    voice = voice_config["voice"]
+    voice_id = voice_config.get("id", voice)
+    label = voice_config.get("label", voice_config.get("name", "Bengali Edition"))
+    filename = voice_config.get("filename", "generated_audio.mp3")
+    speaker_filename = voice_config.get("speaker_filename", "")
+
+    now_utc = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+    iso_timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    date_stamp = time.strftime("%Y-%m-%d", time.gmtime())
+
+    clean_text = " ".join(text.strip().split())
+    script_snippet = clean_text[:100] + "..." if len(clean_text) > 105 else clean_text
+
+    result_meta = {
+        **voice_config,
+        "voice_id": voice_id,
+        "voice_model": voice,
+        "filepath": filename,
+        "path": filename,
+        "speaker_path": speaker_filename,
+        "rate": rate,
+        "pitch": pitch,
+        "timestamp": now_utc,
+        "iso_timestamp": iso_timestamp,
+        "date_stamp": date_stamp,
+        "script_snippet": script_snippet,
+        "script_length": len(text),
+        "success": False
+    }
 
     if dry_run:
-        logger.info(f"[DRY RUN] Simulating Edge-TTS synthesis for {edition_label} ({voice_name}) -> {primary_filename}")
-        write_dummy_audio_file(primary_filename, duration_sec=5.0)
-        if save_speaker_alias and speaker_filename and speaker_filename != primary_filename:
-            shutil.copyfile(primary_filename, speaker_filename)
-        return {
-            **voice_cfg,
-            "success": True,
-            "path": primary_filename,
-            "speaker_path": speaker_filename,
-            "dry_run": True,
-            "duration_sec": 5.0,
-        }
+        write_dummy_audio_file(filename)
+        if save_speaker_alias and speaker_filename and speaker_filename != filename:
+            try:
+                shutil.copyfile(filename, speaker_filename)
+            except Exception:
+                pass
+        result_meta["success"] = True
+        return result_meta
 
+    Path(filename).parent.mkdir(parents=True, exist_ok=True)
     try:
         import edge_tts
+        communicator = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
+        logger.info(f"Synthesizing {label} ({voice})...")
+        await asyncio.wait_for(communicator.save(filename), timeout=TIMEOUT_EDGE_TTS)
 
-        logger.info(f"Synthesizing [{edition_label}] via {voice_name} -> {primary_filename}")
-        communicate = edge_tts.Communicate(text, voice_name, rate=rate, pitch=pitch)
-        await asyncio.wait_for(communicate.save(primary_filename), timeout=timeout_sec)
+        if os.path.exists(filename) and os.path.getsize(filename) > 0:
+            embed_mp3_id3_metadata(
+                filepath=filename,
+                title=f"AI Voiceover: {voice_config.get('name', 'Bengali')}",
+                artist=f"{label} ({voice})",
+                album="Bengali AI Video Generator Edition",
+                comment=f"ID: {voice_id} | Time: {now_utc} | Snippet: {script_snippet}",
+                date_str=date_stamp
+            )
+            if save_speaker_alias and speaker_filename and speaker_filename != filename:
+                try:
+                    shutil.copyfile(filename, speaker_filename)
+                except Exception:
+                    pass
+            result_meta["success"] = True
+            result_meta["file_size_bytes"] = os.path.getsize(filename)
+            return result_meta
+        else:
+            write_dummy_audio_file(filename)
+            return result_meta
+    except Exception as e:
+        logger.error(f"[Edge-TTS Error] {label} ({voice}): {e}. Fallback triggered.")
+        write_dummy_audio_file(filename)
+        if save_speaker_alias and speaker_filename and speaker_filename != filename:
+            try:
+                shutil.copyfile(filename, speaker_filename)
+            except Exception:
+                pass
+        return result_meta
 
-        file_size = os.path.getsize(primary_filename) if os.path.exists(primary_filename) else 0
-        if file_size < 100:
-            raise ValueError(f"Generated file is empty or corrupted ({file_size} bytes)")
 
-        # Pydub inspection/normalization of the single file
-        dur = post_process_individual_audio(primary_filename)
-
-        # Also write speaker_X.mp3 alias if requested
-        if save_speaker_alias and speaker_filename and speaker_filename != primary_filename:
-            shutil.copyfile(primary_filename, speaker_filename)
-            logger.info(f"Saved speaker copy: {speaker_filename}")
-
-        logger.info(f"✅ Successfully synthesized individual file: {primary_filename} ({file_size} bytes)")
-        return {
-            **voice_cfg,
-            "success": True,
-            "path": primary_filename,
-            "speaker_path": speaker_filename,
-            "dry_run": False,
-            "size": file_size,
-            "duration_sec": dur,
-        }
-    except Exception as exc:
-        logger.warning(f"Edge-TTS synthesis error for {edition_label} ({voice_name}): {exc}. Creating fallback placeholder.")
-        write_dummy_audio_file(primary_filename, duration_sec=4.0)
-        if save_speaker_alias and speaker_filename and speaker_filename != primary_filename:
-            shutil.copyfile(primary_filename, speaker_filename)
-        return {
-            **voice_cfg,
-            "success": False,
-            "error": str(exc),
-            "path": primary_filename,
-            "speaker_path": speaker_filename,
-            "dry_run": False,
-            "duration_sec": 4.0,
-        }
+# Backward-compatible alias
+generate_single_voice = generate_single_audio_edition
 
 
 async def generate_all_bengali_audio_versions(
-    text: str,
-    rate: str = "+5%",
-    pitch: str = "-1Hz",
-    dry_run: bool = False,
-    concatenate_output: bool = False,
+    text: str, rate: str = "+5%", pitch: str = "-1Hz", dry_run: bool = False, concatenate_output: bool = False
 ) -> List[Dict[str, Any]]:
-    """
-    Synthesizes all 4 regional Bengali editions concurrently.
-
-    STRICT GUARANTEE:
-    Outputs 4 separate individual files:
-      1. generated_audio_nabanita_female_bd.mp3 (and speaker_1.mp3)
-      2. generated_audio_pradeep_male_bd.mp3   (and speaker_2.mp3)
-      3. generated_audio_tanishaa_female_in.mp3 (and speaker_3.mp3)
-      4. generated_audio_bashkar_male_in.mp3   (and speaker_4.mp3)
-
-    Under NO circumstances are these merged into a single 18-minute file
-    unless concatenate_output=True is explicitly passed.
-    """
     tasks = [
-        generate_single_voice(
-            text=text,
-            voice_cfg=cfg,
-            rate=rate,
-            pitch=pitch,
-            dry_run=dry_run,
-            save_speaker_alias=True,
-        )
-        for cfg in BENGALI_VOICE_CONFIGS
+        generate_single_audio_edition(text, v_conf, rate=rate, pitch=pitch, dry_run=dry_run)
+        for v_conf in BENGALI_VOICE_CONFIGS
     ]
     results = await asyncio.gather(*tasks, return_exceptions=False)
+    if results and os.path.exists(results[0]["filepath"]):
+        try:
+            shutil.copyfile(results[0]["filepath"], "generated_audio.mp3")
+        except Exception:
+            pass
 
-    # Sanity verification: verify all 4 files exist individually and have reasonable sizes
-    for r in results:
-        fpath = r.get("path")
-        if fpath and os.path.exists(fpath):
-            logger.info(f"Verified independent audio edition: {fpath} ({os.path.getsize(fpath)} bytes)")
-
-    # Explicit opt-in concatenation ONLY if explicitly requested
     if concatenate_output:
-        logger.warning("concatenate_output=True requested. Merging segments into a single long audio track.")
         try:
             from pydub import AudioSegment
-
             combined = AudioSegment.empty()
             for r in results:
-                fpath = r.get("path")
+                fpath = r.get("filepath")
                 if fpath and os.path.exists(fpath):
                     combined += AudioSegment.from_file(fpath, format="mp3")
             combined.export("combined_all_speakers.mp3", format="mp3")
-            logger.info("Exported combined_all_speakers.mp3")
         except Exception as e:
-            logger.error(f"Explicit concatenation failed: {e}")
+            logger.error(f"Concatenation error: {e}")
 
     return results
 
 
-async def generate_speaker_segments(
-    segments: List[Dict[str, Any]],
-    output_dir: str = "audio_segments",
-    dry_run: bool = False,
-    concatenate_output: bool = False,
-) -> List[Dict[str, Any]]:
-    """
-    Generates distinct individual audio files for a list of speaker segments
-    (e.g., segment 1 -> speaker_1.mp3, segment 2 -> speaker_2.mp3).
-    Ensures every segment is exported individually.
-    """
-    os.makedirs(output_dir, exist_ok=True)
-    generated = []
-
-    for idx, seg in enumerate(segments):
-        speaker_idx = idx + 1
-        speaker_filename = os.path.join(output_dir, f"speaker_{speaker_idx}.mp3")
-        text = seg.get("text") or seg.get("narration") or ""
-        voice = seg.get("voice") or BENGALI_VOICE_CONFIGS[(speaker_idx - 1) % len(BENGALI_VOICE_CONFIGS)]["voice"]
-
-        cfg = {
-            "id": f"speaker_{speaker_idx}",
-            "name": f"Speaker {speaker_idx}",
-            "voice": voice,
-            "filename": speaker_filename,
-            "speaker_filename": speaker_filename,
-        }
-
-        res = await generate_single_voice(
-            text=text,
-            voice_cfg=cfg,
-            rate=seg.get("rate", "+5%"),
-            pitch=seg.get("pitch", "-1Hz"),
-            dry_run=dry_run,
-            save_speaker_alias=False,
-        )
-        generated.append(res)
-
-    return generated
-
-
 async def generate_audio_with_edge_tts(
-    text: str,
-    dialect: str = "none",
-    output_filename: str = "generated_audio.mp3",
-    rate: str = "+5%",
-    pitch: str = "-1Hz",
-    dry_run: bool = False,
+    text: str, dialect: str = "none", output_filename: str = "generated_audio.mp3", dry_run: bool = False
 ) -> str:
-    """
-    Generates a single isolated audio track selected based on the dialect tag.
-    """
     chosen_voice = DIALECT_VOICE_MAP.get(dialect.lower(), "bn-BD-NabanitaNeural")
     cfg = {
         "id": "single_dialect",
         "name": f"Dialect Audio ({dialect})",
         "voice": chosen_voice,
         "filename": output_filename,
+        "label": f"Dialect Voice ({dialect})",
     }
-    res = await generate_single_voice(text, cfg, rate=rate, pitch=pitch, dry_run=dry_run, save_speaker_alias=False)
-    return res["path"]
+    res = await generate_single_audio_edition(text, cfg, rate="+5%", pitch="-1Hz", dry_run=dry_run)
+    return res["filepath"] if res else output_filename
+
+
+async def generate_speaker_segments(
+    segments: List[Dict[str, Any]], output_dir: str = "audio_segments", dry_run: bool = False
+) -> List[Dict[str, Any]]:
+    os.makedirs(output_dir, exist_ok=True)
+    generated = []
+    for idx, seg in enumerate(segments):
+        speaker_idx = idx + 1
+        speaker_filename = os.path.join(output_dir, f"speaker_{speaker_idx}.mp3")
+        text = seg.get("text") or seg.get("narration") or ""
+        voice = seg.get("voice") or BENGALI_VOICE_CONFIGS[(speaker_idx - 1) % len(BENGALI_VOICE_CONFIGS)]["voice"]
+        cfg = {
+            "id": f"speaker_{speaker_idx}",
+            "name": f"Speaker {speaker_idx}",
+            "voice": voice,
+            "filename": speaker_filename,
+            "speaker_filename": speaker_filename,
+            "label": f"Speaker {speaker_idx}",
+        }
+        res = await generate_single_audio_edition(
+            text=text, voice_config=cfg, rate=seg.get("rate", "+5%"), pitch=seg.get("pitch", "-1Hz"), dry_run=dry_run
+        )
+        generated.append(res)
+    return generated

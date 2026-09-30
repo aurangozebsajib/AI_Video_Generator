@@ -79,3 +79,7 @@ def segment_script_into_scenes(script_text: str, scene_count: int = 3) -> List[D
         })
 
     return scenes
+
+
+# Alias matching master repository specification
+extract_scenes_for_video = segment_script_into_scenes
