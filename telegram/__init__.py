@@ -1,19 +1,17 @@
 """
-Telegram Dispatcher & API Health Monitoring Module
+Telegram Bot Dispatcher & Diagnostics Package
 """
 
 from .dispatcher import (
-    send_audio_to_telegram,
-    send_all_audios_to_telegram,
-    send_video_to_telegram,
-    send_all_videos_to_telegram,
     check_api_health,
+    send_all_audios_to_telegram,
+    send_all_videos_to_telegram,
+    send_multipart_file,
 )
 
 __all__ = [
-    "send_audio_to_telegram",
-    "send_all_audios_to_telegram",
-    "send_video_to_telegram",
-    "send_all_videos_to_telegram",
     "check_api_health",
+    "send_all_audios_to_telegram",
+    "send_all_videos_to_telegram",
+    "send_multipart_file",
 ]

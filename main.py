@@ -3,8 +3,8 @@
 AI Video & Audio Production Pipeline (Modular Architecture)
 Repository: aurangozebsajib/AI_Video_Generator
 
-Full Workflow:
-1. Brain: Parses latest script & dialect from Google Doc, decomposes into visual scene prompts, rotates tokens.
+Full 6-Stage Workflow:
+1. Brain: Parses latest script & dialect from Google Doc, decomposes into visual scene prompts.
 2. Audio: Synthesizes 4 regional Bengali voice editions simultaneously via Edge-TTS (with custom pacing).
 3. Telegram (Audio): Dispatches all 4 audio editions sequentially with distinct HTML captions.
 4. Video: Renders cinematic video scenes, analyzes narration tempo via Librosa, auto-syncs with FFmpeg.
@@ -22,21 +22,23 @@ import logging
 import argparse
 from pathlib import Path
 
-# Set global socket timeout to prevent indefinite hangs
+# Set global socket timeout to prevent indefinite network hangs in CI/CD
 socket.setdefaulttimeout(30.0)
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("AIVideoPipeline")
+
 
 # Clean signal handling for GitHub Actions / CI cancellation
 def handle_exit_signal(signum, frame):
     logger.warning(f"Process received shutdown signal ({signum}). Exiting cleanly.")
     sys.exit(0)
+
 
 signal.signal(signal.SIGINT, handle_exit_signal)
 signal.signal(signal.SIGTERM, handle_exit_signal)
@@ -49,7 +51,6 @@ from brain import (
 )
 from audio import (
     generate_all_bengali_audio_versions,
-    generate_audio_with_edge_tts,
     BENGALI_VOICE_CONFIGS,
 )
 from video import (
@@ -63,7 +64,11 @@ from telegram import (
 
 # Environment variables
 STORY_DOC_ID = os.environ.get("STORY_STORAGE_DOC", "").strip()
-GOOGLE_AI_STUDIO_KEY = (os.environ.get("GOOGLE_AI_STUDIO_KEY") or os.environ.get("GEMINI_API_KEY", "")).strip()
+GOOGLE_AI_STUDIO_KEY = (
+    os.environ.get("GOOGLE_AI_STUDIO_KEY")
+    or os.environ.get("GEMINI_API_KEY")
+    or os.environ.get("API_KEY", "")
+).strip()
 ENV_DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
 
 
@@ -72,6 +77,7 @@ async def main():
     parser.add_argument("--dry-run", action="store_true", help="Run in dry-run mode (simulate without external APIs)")
     parser.add_argument("--doc-id", type=str, default="", help="Override target Google Doc ID")
     parser.add_argument("--full-video", action="store_true", help="Execute full video generation and auto-sync pipeline")
+    parser.add_argument("--audio-only", action="store_true", help="Run only script parsing, audio generation, and audio dispatch")
     parser.add_argument("--health-check", action="store_true", help="Perform preemptive health check of Gemini and Telegram APIs and exit")
     args = parser.parse_args()
 
@@ -88,8 +94,11 @@ async def main():
     logger.info("====================================================================")
     logger.info(" 🎬 MODULAR AI VIDEO & MULTI-VOICE GENERATION PIPELINE")
     logger.info(f" ⚙️ Mode: {'DRY RUN (Simulated)' if is_dry_run else 'AUTOMATED PRODUCTION'}")
-    logger.info(f" 📄 Target Doc ID: {target_doc_id or '(Configured Secret)'}")
-    logger.info(f" 🩺 API Health: {health_result['status'].upper()} (Gemini: {health_result['gemini']['details']}, Telegram: {health_result['telegram']['details']})")
+    logger.info(f" 📄 Target Doc ID: {target_doc_id or '(Configured Secret / Default)'}")
+    logger.info(
+        f" 🩺 API Health: {health_result['status'].upper()} "
+        f"(Gemini: {health_result['gemini']['details']}, Telegram: {health_result['telegram']['details']})"
+    )
     logger.info("====================================================================")
 
     # -------------------------------------------------------------------------
@@ -113,7 +122,10 @@ async def main():
     # -------------------------------------------------------------------------
     if GOOGLE_AI_STUDIO_KEY and not is_dry_run:
         logger.info("\n[Stage 2: Brain] Refining script clarity via Gemini 2.5 Flash API...")
-        polish_prompt = f"Review this Bengali script for spoken narration clarity. Return ONLY the polished Bengali script:\n\n{script_text}"
+        polish_prompt = (
+            f"Review this Bengali script for spoken narration clarity, preserving colloquial dialect ({dialect}). "
+            f"Return ONLY the polished Bengali script text:\n\n{script_text}"
+        )
         polished = call_gemini_api(polish_prompt)
         if polished and len(polished) > 10:
             logger.info("-> Script successfully refined via Gemini 2.5 Flash.")
@@ -127,23 +139,27 @@ async def main():
         script_text,
         rate="+5%",
         pitch="-1Hz",
-        dry_run=is_dry_run
+        dry_run=is_dry_run,
     )
 
     # -------------------------------------------------------------------------
     # Stage 4: Telegram - Sequential Dispatch of Audio Editions
     # -------------------------------------------------------------------------
+    logger.info("\n[Stage 4: Telegram] Dispatching 4 Audio Editions to Telegram Channel...")
     send_all_audios_to_telegram(
         audio_results,
         video_header=video_header,
         dialect=dialect,
-        dry_run=is_dry_run
+        dry_run=is_dry_run,
     )
 
     # -------------------------------------------------------------------------
     # Stage 5 & 6: Video - Librosa Sync, FFmpeg Multi-Edition Render & Telegram Dispatch
     # -------------------------------------------------------------------------
-    run_video = args.full_video or os.environ.get("RUN_FULL_VIDEO_PIPELINE") == "true"
+    run_video = (
+        not args.audio_only
+        and (args.full_video or os.environ.get("RUN_FULL_VIDEO_PIPELINE", "true").lower() == "true")
+    )
     if run_video:
         logger.info("\n[Stage 5: Video] Rendering 4 Synchronized Video Editions...")
         video_editions = await run_full_video_pipeline(
@@ -151,14 +167,14 @@ async def main():
             script_text=script_text,
             audio_results=audio_results,
             dialect=dialect,
-            dry_run=is_dry_run
+            dry_run=is_dry_run,
         )
 
         logger.info("\n[Stage 6: Telegram] Dispatching Video Editions to Telegram...")
         send_all_videos_to_telegram(
             video_editions=video_editions,
             video_header=video_header,
-            dry_run=is_dry_run
+            dry_run=is_dry_run,
         )
 
     logger.info("\n✅ Modular AI Video & Audio Pipeline Finished Successfully.")

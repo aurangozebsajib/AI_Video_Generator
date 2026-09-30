@@ -2,19 +2,36 @@ name: Automated AI Video Generation Pipeline
 
 on:
   schedule:
-    # Trigger automatically every day at 06:00 UTC
+    # Trigger automatically daily at 06:00 UTC
     - cron: '0 6 * * *'
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      doc_id_override:
+        description: 'Optional Google Doc ID override to process a specific document'
+        required: false
+        type: string
+        default: ''
+      dry_run:
+        description: 'Run pipeline in dry-run mode (simulate without external API calls)'
+        required: false
+        type: boolean
+        default: false
+      full_video:
+        description: 'Execute full video generation and Librosa/FFmpeg multi-voice sync'
+        required: false
+        type: boolean
+        default: true
 
 concurrency:
   group: video-generation-pipeline
   cancel-in-progress: false
 
 jobs:
-  generate-videos:
-    name: Execute AI Video Generation Pipeline
+  run-pipeline:
+    name: Execute AI Video & Audio Generation Pipeline
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -22,7 +39,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
@@ -38,31 +55,34 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Automated Video Generation Pipeline
+      - name: Run Main Automation Pipeline
         env:
           GOOGLE_SERVICE_JSON: ${{ secrets.GOOGLE_SERVICE_JSON }}
-          STORY_STORAGE_DOC: ${{ secrets.STORY_STORAGE_DOC }}
+          STORY_STORAGE_DOC: ${{ inputs.doc_id_override != '' && inputs.doc_id_override || secrets.STORY_STORAGE_DOC }}
           MODEL_STORAGE_SHEET: ${{ secrets.MODEL_STORAGE_SHEET }}
           GOOGLE_AI_STUDIO_KEY: ${{ secrets.GOOGLE_AI_STUDIO_KEY || secrets.GEMINI_API_KEY }}
           HF_TOKENS: ${{ secrets.HF_TOKENS }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          RUN_FULL_VIDEO_PIPELINE: ${{ inputs.full_video || 'true' }}
         run: |
           echo "=========================================================="
           echo " Starting Automated AI Video Generation Pipeline..."
           echo " Event: ${{ github.event_name }}"
+          echo " Dry Run Mode: ${{ inputs.dry_run || 'false' }}"
           echo " Commit: ${{ github.sha }}"
           echo "=========================================================="
           python main.py
 
-      - name: Upload Generated Video Artifacts
+      - name: Upload Generated Media Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: generated-bengali-video-editions
           path: |
             pipeline_workspace/final_outputs/*.mp4
-            pipeline_workspace/assets/*.jpg
+            pipeline_workspace/video_clips/*.mp4
             *.mp3
           retention-days: 14
           if-no-files-found: warn

@@ -1,143 +1,155 @@
 """
-Edge-TTS Multi-Voice Bengali Speech Synthesis
-Supports 4 regional Bengali voices generated simultaneously with custom pacing.
+Bengali Regional TTS Synthesis Engine using Microsoft Edge-TTS
+Supports 4 simultaneous regional Bengali voice editions with customized pacing.
 """
 
 import os
 import asyncio
 import logging
-from pathlib import Path
-from typing import List, Dict, Any
+from typing import Dict, Any, List
 
 logger = logging.getLogger("AIVideoPipeline.Audio")
 
-TIMEOUT_EDGE_TTS = float(os.environ.get("TIMEOUT_EDGE_TTS", "45.0"))
-
-# Regional Bengali voice configurations
-BENGALI_VOICE_CONFIGS: List[Dict[str, Any]] = [
+BENGALI_VOICE_CONFIGS = [
     {
-        "id": "v1_nabanita",
+        "id": "version_1_bd_female",
+        "name": "Nabanita (Female, BD)",
         "voice": "bn-BD-NabanitaNeural",
-        "name": "Nabanita",
-        "label": "Bangladesh Female (Nabanita)",
         "region": "Bangladesh",
         "gender": "Female",
         "filename": "generated_audio_nabanita_female_bd.mp3",
+        "description": "Natural, clear, articulate Bengali female news-anchor delivery.",
     },
     {
-        "id": "v2_pradeep",
+        "id": "version_2_bd_male",
+        "name": "Pradeep (Male, BD)",
         "voice": "bn-BD-PradeepNeural",
-        "name": "Pradeep",
-        "label": "Bangladesh Male (Pradeep)",
         "region": "Bangladesh",
         "gender": "Male",
         "filename": "generated_audio_pradeep_male_bd.mp3",
+        "description": "Deep baritone, authoritative, and cinematic dramatic Bengali narration.",
     },
     {
-        "id": "v3_tanishaa",
+        "id": "version_3_in_female",
+        "name": "Tanishaa (Female, IN)",
         "voice": "bn-IN-TanishaaNeural",
-        "name": "Tanishaa",
-        "label": "India Bengali Female (Tanishaa)",
-        "region": "India",
+        "region": "India (Kolkata)",
         "gender": "Female",
         "filename": "generated_audio_tanishaa_female_in.mp3",
+        "description": "Soft, melodious, gentle, and emotive Bengali storytelling voice.",
     },
     {
-        "id": "v4_bashkar",
+        "id": "version_4_in_male",
+        "name": "Bashkar (Male, IN)",
         "voice": "bn-IN-BashkarNeural",
-        "name": "Bashkar",
-        "label": "India Bengali Male (Bashkar)",
-        "region": "India",
+        "region": "India (Kolkata)",
         "gender": "Male",
         "filename": "generated_audio_bashkar_male_in.mp3",
+        "description": "Energetic, dynamic, bright, and lively regional storytelling tone.",
     },
 ]
 
+DIALECT_VOICE_MAP = {
+    "rangpuri": "bn-BD-NabanitaNeural",
+    "barishal": "bn-BD-NabanitaNeural",
+    "old-dhaka": "bn-BD-PradeepNeural",
+    "chittagong": "bn-BD-PradeepNeural",
+    "sylheti": "bn-IN-BashkarNeural",
+    "kolkata": "bn-IN-TanishaaNeural",
+    "none": "bn-BD-NabanitaNeural",
+    "auto": "bn-BD-NabanitaNeural",
+}
 
-def write_dummy_audio_file(filepath: str, duration_sec: int = 4):
+
+def write_dummy_audio_file(filepath: str, duration_sec: float = 3.0):
     """
-    Creates a minimal valid MPEG audio frame (silent MP3) so downstream steps
-    never crash on missing files during dry-run, offline, or fallback scenarios.
+    Creates a valid minimal MP3 file with silent MPEG audio sync frames
+    to ensure Librosa and FFmpeg never crash during simulation or fallback.
     """
-    Path(filepath).parent.mkdir(parents=True, exist_ok=True)
-    # Valid MPEG-1 Audio Layer III frame header: syncword 0xFFFB (128kbps, 44.1kHz, stereo)
-    mp3_frame = b'\xff\xfb\x90\x64' + (b'\x00' * 413)
-    with open(filepath, 'wb') as f:
-        for _ in range(max(1, duration_sec * 38)):
-            f.write(mp3_frame)
+    # Standard MPEG-1 Layer 3 sync header frame (silent frame: 0xFF, 0xFB, 0x90, 0x64...)
+    silent_frame = b"\xff\xfb\x90\x64" + (b"\x00" * 414)
+    frame_count = max(1, int(duration_sec * 38.28))
+    with open(filepath, "wb") as f:
+        f.write(silent_frame * frame_count)
+    logger.info(f"Fallback audio placeholder generated: {filepath} (~{duration_sec}s)")
 
 
-async def generate_single_audio_edition(
+async def generate_single_voice(
     text: str,
-    voice_config: Dict[str, Any],
+    voice_cfg: Dict[str, Any],
     rate: str = "+5%",
     pitch: str = "-1Hz",
-    dry_run: bool = False
+    dry_run: bool = False,
+    timeout_sec: float = 45.0,
 ) -> Dict[str, Any]:
-    """Generates a single Bengali audio file using edge-tts with timeouts and fallbacks."""
-    voice = voice_config["voice"]
-    label = voice_config["label"]
-    filename = voice_config["filename"]
+    """
+    Synthesizes a single audio edition via edge-tts with timeout safeguards.
+    """
+    output_filename = voice_cfg["filename"]
+    voice_name = voice_cfg["voice"]
+    edition_label = voice_cfg["name"]
 
     if dry_run:
-        logger.info(f"[DRY RUN] Simulating Edge-TTS generation for {label} ({voice})...")
-        logger.info(f"[DRY RUN] Pacing: rate='{rate}', pitch='{pitch}' -> {filename}")
-        write_dummy_audio_file(filename)
-        return {**voice_config, "filepath": filename, "success": True}
-
-    Path(filename).parent.mkdir(parents=True, exist_ok=True)
+        logger.info(f"[DRY RUN] Simulating Edge-TTS synthesis for {edition_label} ({voice_name})")
+        write_dummy_audio_file(output_filename, duration_sec=5.0)
+        return {
+            **voice_cfg,
+            "success": True,
+            "path": output_filename,
+            "dry_run": True,
+        }
 
     try:
         import edge_tts
-        communicator = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
-        logger.info(f"Synthesizing {label} with voice: {voice} (rate={rate}, pitch={pitch})...")
-        await asyncio.wait_for(communicator.save(filename), timeout=TIMEOUT_EDGE_TTS)
 
-        if os.path.exists(filename) and os.path.getsize(filename) > 0:
-            logger.info(f"✅ Audio generated: {filename} ({os.path.getsize(filename)} bytes) for {label}")
-            return {**voice_config, "filepath": filename, "success": True}
-        else:
-            logger.warning(f"Edge-TTS produced empty file for {label}. Using safe placeholder.")
-            write_dummy_audio_file(filename)
-            return {**voice_config, "filepath": filename, "success": False}
-    except asyncio.TimeoutError:
-        logger.error(f"[Edge-TTS Timeout] Speech generation timed out for {label} ({voice}). Using fallback.")
-        write_dummy_audio_file(filename)
-        return {**voice_config, "filepath": filename, "success": False}
-    except Exception as e:
-        logger.error(f"[Edge-TTS Error] {label} ({voice}): {e}. Using fallback placeholder.")
-        write_dummy_audio_file(filename)
-        return {**voice_config, "filepath": filename, "success": False}
+        logger.info(f"Synthesizing [{edition_label}] via {voice_name} (rate={rate}, pitch={pitch})...")
+        communicate = edge_tts.Communicate(text, voice_name, rate=rate, pitch=pitch)
+        await asyncio.wait_for(communicate.save(output_filename), timeout=timeout_sec)
+
+        file_size = os.path.getsize(output_filename) if os.path.exists(output_filename) else 0
+        if file_size < 100:
+            raise ValueError(f"Generated file is empty or corrupted ({file_size} bytes)")
+
+        logger.info(f"Successfully synthesized: {output_filename} ({file_size} bytes)")
+        return {
+            **voice_cfg,
+            "success": True,
+            "path": output_filename,
+            "dry_run": False,
+            "size": file_size,
+        }
+    except Exception as exc:
+        logger.warning(f"Edge-TTS synthesis error for {edition_label} ({voice_name}): {exc}. Creating fallback placeholder.")
+        write_dummy_audio_file(output_filename, duration_sec=4.0)
+        return {
+            **voice_cfg,
+            "success": False,
+            "error": str(exc),
+            "path": output_filename,
+            "dry_run": False,
+        }
 
 
 async def generate_all_bengali_audio_versions(
     text: str,
     rate: str = "+5%",
     pitch: str = "-1Hz",
-    dry_run: bool = False
+    dry_run: bool = False,
 ) -> List[Dict[str, Any]]:
     """
-    Simultaneously generates 4 distinct regional Bengali voice audio files using edge-tts:
-    1. bn-BD-NabanitaNeural (Bangladesh Female)
-    2. bn-BD-PradeepNeural (Bangladesh Male)
-    3. bn-IN-TanishaaNeural (India Bengali Female)
-    4. bn-IN-BashkarNeural (India Bengali Male)
+    Synthesizes all 4 regional Bengali editions concurrently using asyncio.gather.
     """
-    logger.info("Executing simultaneous audio generation across all 4 regional Bengali voices...")
     tasks = [
-        generate_single_audio_edition(text, v_conf, rate=rate, pitch=pitch, dry_run=dry_run)
-        for v_conf in BENGALI_VOICE_CONFIGS
+        generate_single_voice(
+            text=text,
+            voice_cfg=cfg,
+            rate=rate,
+            pitch=pitch,
+            dry_run=dry_run,
+        )
+        for cfg in BENGALI_VOICE_CONFIGS
     ]
     results = await asyncio.gather(*tasks, return_exceptions=False)
-
-    # Maintain generated_audio.mp3 as a default alias for backwards compatibility
-    if results and os.path.exists(results[0]["filepath"]):
-        try:
-            import shutil
-            shutil.copyfile(results[0]["filepath"], "generated_audio.mp3")
-        except Exception:
-            pass
-
     return results
 
 
@@ -145,8 +157,19 @@ async def generate_audio_with_edge_tts(
     text: str,
     dialect: str = "none",
     output_filename: str = "generated_audio.mp3",
-    dry_run: bool = False
+    rate: str = "+5%",
+    pitch: str = "-1Hz",
+    dry_run: bool = False,
 ) -> str:
-    """Single audio generation wrapper for backwards compatibility."""
-    results = await generate_all_bengali_audio_versions(text, rate="+5%", pitch="-1Hz", dry_run=dry_run)
-    return results[0]["filepath"] if results else output_filename
+    """
+    Generates a single audio track selected based on the dialect tag.
+    """
+    chosen_voice = DIALECT_VOICE_MAP.get(dialect.lower(), "bn-BD-NabanitaNeural")
+    cfg = {
+        "id": "single_dialect",
+        "name": f"Dialect Audio ({dialect})",
+        "voice": chosen_voice,
+        "filename": output_filename,
+    }
+    res = await generate_single_voice(text, cfg, rate=rate, pitch=pitch, dry_run=dry_run)
+    return res["path"]

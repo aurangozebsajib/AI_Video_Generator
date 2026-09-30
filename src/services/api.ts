@@ -176,3 +176,48 @@ export async function downloadVeoVideo(operationName: string): Promise<Blob> {
 
   return await res.blob();
 }
+
+export async function fetchPersonas(): Promise<any[]> {
+  const res = await fetch('/api/pipeline/personas');
+  if (!res.ok) throw new Error('Failed to fetch agent personas');
+  const data = await res.json();
+  return data.personas || [];
+}
+
+export async function updatePersona(personaId: string, content: string): Promise<void> {
+  const res = await fetch('/api/pipeline/personas', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ personaId, content }),
+  });
+  if (!res.ok) throw new Error('Failed to save persona');
+}
+
+export async function parseGoogleDocScript(rawContent: string): Promise<{
+  videoHeader: string;
+  dialect: string;
+  scriptText: string;
+}> {
+  const res = await fetch('/api/pipeline/parse-script', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rawContent }),
+  });
+  if (!res.ok) throw new Error('Failed to parse script');
+  return await res.json();
+}
+
+export async function runPipelineSimulation(fullVideo = true, docId?: string): Promise<{
+  success: boolean;
+  exitCode: number;
+  log: string;
+}> {
+  const res = await fetch('/api/pipeline/run-dry-run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fullVideo, docId }),
+  });
+  if (!res.ok) throw new Error('Failed to run pipeline simulation');
+  return await res.json();
+}
+

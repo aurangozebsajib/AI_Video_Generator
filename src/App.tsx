@@ -10,6 +10,7 @@ import {
   HelpCircle,
   Volume2,
   Share2,
+  Cpu,
 } from 'lucide-react';
 import { Header } from './components/Header';
 import { PromptEditor } from './components/PromptEditor';
@@ -17,6 +18,7 @@ import { VideoPlayer } from './components/VideoPlayer';
 import { StoryboardDirector } from './components/StoryboardDirector';
 import { PresetsModal } from './components/PresetsModal';
 import { HistoryDrawer } from './components/HistoryDrawer';
+import { PipelineManager } from './components/PipelineManager';
 import {
   checkApiHealth,
   checkApiStatus,
@@ -47,6 +49,7 @@ const STORAGE_KEY = 'ai_video_generator_projects_v1';
 export const App: React.FC = () => {
   // App state
   const [hasApiKey, setHasApiKey] = useState(true);
+  const [activeTab, setActiveTab] = useState<'studio' | 'pipeline'>('studio');
   const [isPresetsOpen, setIsPresetsOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
@@ -472,6 +475,28 @@ export const App: React.FC = () => {
     });
   };
 
+  const handleLoadScriptFromPipeline = (scriptText: string, header: string, dialect: string) => {
+    setPrompt(scriptText);
+    const dialectMap: Record<string, BengaliVoiceOption> = {
+      'old-dhaka': 'deep',
+      'chittagong': 'deep',
+      'sylheti': 'energetic',
+      'kolkata': 'soft',
+      'rangpuri': 'standard',
+      'barishal': 'standard',
+    };
+    if (dialectMap[dialect.toLowerCase()]) {
+      setBengaliVoice(dialectMap[dialect.toLowerCase()]);
+    }
+    setCurrentProject((prev) => ({
+      ...prev,
+      title: header,
+      prompt: scriptText,
+    }));
+    setActiveTab('studio');
+    showToast(`Loaded "${header}" (${dialect}) into Creative Studio!`);
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
       {/* Top Header */}
@@ -486,82 +511,118 @@ export const App: React.FC = () => {
         historyCount={projects.length}
       />
 
+      {/* Primary Workspace Navigation Tabs */}
+      <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+        <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
+          <button
+            onClick={() => setActiveTab('studio')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+              activeTab === 'studio'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+            }`}
+          >
+            <Sparkles className="w-4 h-4 text-indigo-300" />
+            <span>Creative Studio & Veo 3.1</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('pipeline')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+              activeTab === 'pipeline'
+                ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+            }`}
+          >
+            <Cpu className="w-4 h-4 text-purple-300" />
+            <span>Autonomous Pipeline & Multi-Agent Brain</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-200 border border-purple-400/30">
+              Background CI
+            </span>
+          </button>
+        </div>
+      </div>
+
       {/* Main Content Workspace */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        {/* Workspace Grid: Left = Controls & Editor, Right = Player & Monitor */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Left Column: Prompting & Director Controls (7 cols on lg) */}
-          <div className="lg:col-span-7 space-y-6">
-            <PromptEditor
-              prompt={prompt}
-              setPrompt={setPrompt}
-              negativePrompt={negativePrompt}
-              setNegativePrompt={setNegativePrompt}
-              style={style}
-              setStyle={setStyle}
-              cameraMotion={cameraMotion}
-              setCameraMotion={setCameraMotion}
-              aspectRatio={aspectRatio}
-              setAspectRatio={setAspectRatio}
-              resolution={resolution}
-              setResolution={setResolution}
-              model={model}
-              setModel={setModel}
-              mode={mode}
-              setMode={setMode}
-              referenceImage={referenceImage}
-              setReferenceImage={setReferenceImage}
-              bengaliVoice={bengaliVoice}
-              setBengaliVoice={setBengaliVoice}
-              onGenerate={handleGenerateVideo}
-              onEnhancePrompt={handleEnhancePrompt}
-              onGenerateStoryboard={handleGenerateStoryboard}
-              isEnhancing={isEnhancing}
-              isGenerating={isGenerating}
-              hasApiKey={hasApiKey}
-            />
-
-            {/* If Storyboard mode is active and storyboard exists, show screenplay below */}
-            {mode === 'storyboard' && currentProject.storyboard && (
-              <StoryboardDirector
-                storyboard={currentProject.storyboard}
+        {activeTab === 'pipeline' ? (
+          <PipelineManager onLoadScriptToEditor={handleLoadScriptFromPipeline} />
+        ) : (
+          /* Workspace Grid: Left = Controls & Editor, Right = Player & Monitor */
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Left Column: Prompting & Director Controls (7 cols on lg) */}
+            <div className="lg:col-span-7 space-y-6">
+              <PromptEditor
+                prompt={prompt}
+                setPrompt={setPrompt}
+                negativePrompt={negativePrompt}
+                setNegativePrompt={setNegativePrompt}
+                style={style}
+                setStyle={setStyle}
+                cameraMotion={cameraMotion}
+                setCameraMotion={setCameraMotion}
+                aspectRatio={aspectRatio}
+                setAspectRatio={setAspectRatio}
+                resolution={resolution}
+                setResolution={setResolution}
+                model={model}
+                setModel={setModel}
+                mode={mode}
+                setMode={setMode}
+                referenceImage={referenceImage}
+                setReferenceImage={setReferenceImage}
                 bengaliVoice={bengaliVoice}
                 setBengaliVoice={setBengaliVoice}
-                onGenerateSceneVisual={(idx) => handleGenerateSceneVisual(idx)}
-                onGenerateAllVisuals={handleGenerateAllVisuals}
-                onGenerateVoiceover={handleGenerateVoiceover}
-                isGeneratingAllVisuals={isGeneratingAllVisuals}
+                onGenerate={handleGenerateVideo}
+                onEnhancePrompt={handleEnhancePrompt}
+                onGenerateStoryboard={handleGenerateStoryboard}
+                isEnhancing={isEnhancing}
+                isGenerating={isGenerating}
+                hasApiKey={hasApiKey}
               />
-            )}
-          </div>
 
-          {/* Right Column: Player & Cinematic Preview (5 cols on lg) */}
-          <div className="lg:col-span-5 space-y-4 lg:sticky lg:top-20">
-            <VideoPlayer
-              project={currentProject}
-              aspectRatio={aspectRatio}
-            />
+              {/* If Storyboard mode is active and storyboard exists, show screenplay below */}
+              {mode === 'storyboard' && currentProject.storyboard && (
+                <StoryboardDirector
+                  storyboard={currentProject.storyboard}
+                  bengaliVoice={bengaliVoice}
+                  setBengaliVoice={setBengaliVoice}
+                  onGenerateSceneVisual={(idx) => handleGenerateSceneVisual(idx)}
+                  onGenerateAllVisuals={handleGenerateAllVisuals}
+                  onGenerateVoiceover={handleGenerateVoiceover}
+                  isGeneratingAllVisuals={isGeneratingAllVisuals}
+                />
+              )}
+            </div>
 
-            {/* Quick tips & Features card */}
-            <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-4 text-xs text-slate-400 space-y-2.5">
-              <div className="flex items-center gap-2 text-slate-200 font-semibold">
-                <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Production Tips</span>
+            {/* Right Column: Player & Cinematic Preview (5 cols on lg) */}
+            <div className="lg:col-span-5 space-y-4 lg:sticky lg:top-20">
+              <VideoPlayer
+                project={currentProject}
+                aspectRatio={aspectRatio}
+              />
+
+              {/* Quick tips & Features card */}
+              <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-4 text-xs text-slate-400 space-y-2.5">
+                <div className="flex items-center gap-2 text-slate-200 font-semibold">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Production Tips</span>
+                </div>
+                <ul className="space-y-1.5 list-disc list-inside text-slate-400">
+                  <li>
+                    Use <strong>Magic Prompt Enhance</strong> to automatically add ARRI Alexa lens details, lighting, and volumetric atmosphere.
+                  </li>
+                  <li>
+                    Try <strong>Multi-Scene Director</strong> to generate a complete 3-scene story with camera movements, subtitles, and Gemini voiceovers.
+                  </li>
+                  <li>
+                    Switch to <strong>Autonomous Pipeline & Multi-Agent Brain</strong> tab to edit the 4 agent personas (Director, Writer, Character Designer, Style Director) and simulate background runs!
+                  </li>
+                </ul>
               </div>
-              <ul className="space-y-1.5 list-disc list-inside text-slate-400">
-                <li>
-                  Use <strong>Magic Prompt Enhance</strong> to automatically add ARRI Alexa lens details, lighting, and volumetric atmosphere.
-                </li>
-                <li>
-                  Try <strong>Multi-Scene Director</strong> to generate a complete 3-scene story with camera movements, subtitles, and Gemini voiceovers.
-                </li>
-                <li>
-                  Generated videos can be exported directly as <strong>MP4</strong> or <strong>WebM</strong> files.
-                </li>
-              </ul>
             </div>
           </div>
-        </div>
+        )}
       </main>
 
       {/* Footer */}

@@ -157,3 +157,12 @@ export interface ApiHealthStatus {
   telegram: ServiceHealth;
   checkedAt: string;
 }
+
+export interface AgentPersona {
+  id: string;
+  name: string;
+  filename: string;
+  role: string;
+  content: string;
+}
+

@@ -17,7 +17,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Helper to get GoogleGenAI client
 function getGenAIClient(): GoogleGenAI {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = (process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_STUDIO_KEY || process.env.API_KEY || '').trim();
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY environment variable is not set. Please set it in Settings > Secrets.');
   }
@@ -506,7 +506,7 @@ app.post('/api/video-download', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'operationName is required' });
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = (process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_STUDIO_KEY || process.env.API_KEY || '').trim();
     if (!apiKey) {
       return res.status(500).json({ error: 'GEMINI_API_KEY is not configured' });
     }
@@ -555,6 +555,124 @@ app.post('/api/video-download', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Video download error:', error);
     res.status(500).json({ error: error?.message || 'Failed to download video' });
+  }
+});
+
+// Pipeline & Multi-Agent Personas API
+app.get('/api/pipeline/personas', async (_req: Request, res: Response) => {
+  try {
+    const fs = await import('fs/promises');
+    const personasDir = path.resolve(__dirname, 'brain/personas');
+    
+    const personasList = [
+      {
+        id: 'director',
+        name: 'The Director (Grok / Master Coordinator)',
+        filename: 'director.txt',
+        role: 'Controls overall story arc, shot cuts, scene breakdown, and timing.',
+      },
+      {
+        id: 'writer',
+        name: 'The Narration Writer (Gemini Specialist)',
+        filename: 'writer.txt',
+        role: 'Polishes spoken Bengali dialogues and preserves regional dialects.',
+      },
+      {
+        id: 'character_designer',
+        name: 'The Character Designer (OpenRouter Specialist)',
+        filename: 'character_designer.txt',
+        role: 'Ensures visual character consistency across multi-scene generations.',
+      },
+      {
+        id: 'style_director',
+        name: 'The Art & Style Director (Cloudflare AI Specialist)',
+        filename: 'style_director.txt',
+        role: 'Defines art style, color grading, lighting moods, and camera motion.',
+      },
+    ];
+
+    const result = await Promise.all(
+      personasList.map(async (p) => {
+        let content = '';
+        try {
+          content = await fs.readFile(path.join(personasDir, p.filename), 'utf-8');
+        } catch {
+          content = `# ${p.name}\n${p.role}`;
+        }
+        return { ...p, content };
+      })
+    );
+
+    res.json({ personas: result });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || 'Failed to fetch personas' });
+  }
+});
+
+app.post('/api/pipeline/personas', async (req: Request, res: Response) => {
+  try {
+    const fs = await import('fs/promises');
+    const { personaId, content } = req.body;
+    if (!personaId || typeof content !== 'string') {
+      return res.status(400).json({ error: 'personaId and content are required' });
+    }
+
+    const safeId = path.basename(personaId).replace(/[^a-zA-Z0-9_\-]/g, '');
+    const targetFile = path.resolve(__dirname, 'brain/personas', `${safeId}.txt`);
+    await fs.writeFile(targetFile, content, 'utf-8');
+
+    res.json({ success: true, message: `Updated persona ${safeId}` });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || 'Failed to save persona' });
+  }
+});
+
+// Parse Script helper for Google Doc format
+app.post('/api/pipeline/parse-script', (req: Request, res: Response) => {
+  const { rawContent = '' } = req.body;
+  const lines = rawContent.split('\n').map((l: string) => l.trim()).filter(Boolean);
+
+  let videoHeader = 'Video 1 | Production';
+  let dialect = 'none';
+  const scriptLines: string[] = [];
+
+  for (const line of lines) {
+    if (/^Video\s+\d+\s*\|/i.test(line)) {
+      videoHeader = line;
+      continue;
+    }
+    const dialectMatch = line.match(/^Dialect\s*:\s*([a-zA-Z0-9_\-]+)/i);
+    if (dialectMatch) {
+      dialect = dialectMatch[1].toLowerCase().trim();
+      continue;
+    }
+    scriptLines.push(line);
+  }
+
+  const scriptText = scriptLines.join('\n') || rawContent;
+  res.json({ videoHeader, dialect, scriptText });
+});
+
+// Run Pipeline in Dry-Run mode and return log output
+app.post('/api/pipeline/run-dry-run', async (req: Request, res: Response) => {
+  try {
+    const { execFile } = await import('child_process');
+    const { fullVideo = true, docId } = req.body;
+
+    const args = ['main.py', '--dry-run'];
+    if (fullVideo) args.push('--full-video');
+    if (docId) args.push('--doc-id', docId);
+
+    execFile('python3', args, { cwd: __dirname, timeout: 60000 }, (error, stdout, stderr) => {
+      const outputLog = (stdout || '') + (stderr ? `\n[STDERR]:\n${stderr}` : '');
+      res.json({
+        success: !error,
+        exitCode: error ? error.code : 0,
+        log: outputLog || 'Executed successfully with no output.',
+      });
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || 'Failed to execute pipeline process' });
   }
 });
 
